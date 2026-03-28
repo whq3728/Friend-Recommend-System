@@ -1,0 +1,12 @@
+{
+  "name": "friend-recommend-system",
+  "private": true,
+  "version": "1.0.0",
+  "description": "校园好友推荐系统：Vue 3 前端 + Flask + SQLite 后端",
+  "scripts": {
+    "frontend:install": "npm install --prefix frontend",
+    "frontend:dev": "npm --prefix frontend run dev",
+    "frontend:build": "npm --prefix frontend run build",
+    "frontend:preview": "npm --prefix frontend run preview"
+  }
+}

@@ -1,0 +1,6 @@
+# Backend API (Flask)
+Flask>=3.0.0,<4
+numpy>=1.26.0,<3
+
+# Optional: backend/seed_data.py bulk fake users
+Faker>=24.0.0

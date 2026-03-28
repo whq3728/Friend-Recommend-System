@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+.venv/
+venv/
+env/
+
+# Node
+node_modules/
+frontend/node_modules/
+
+# 构建产物
+frontend/dist/
+
+# 本地 SQLite（初始化见 README / init_db.py）
+backend/database/*.db
+backend/database/*.db-journal
+
+# 环境变量与密钥
+.env
+.env.local
+
+# IDE / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
