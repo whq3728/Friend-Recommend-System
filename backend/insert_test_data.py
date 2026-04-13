@@ -127,6 +127,25 @@ for user_id, trait in traits:
         (user_id, trait),
     )
 
+# Big Five 性格测试数据（extro/agree/conscientious/neurotic/open）
+bigfives = [
+    (1, 0.8, 0.7, 0.6, 0.3, 0.75),
+    (2, 0.4, 0.6, 0.7, 0.5, 0.45),
+    (3, 0.7, 0.8, 0.55, 0.4, 0.65),
+    (4, 0.3, 0.5, 0.75, 0.6, 0.4),
+    (5, 0.6, 0.4, 0.5, 0.35, 0.8),
+]
+
+for row in bigfives:
+    cursor.execute(
+        """
+    INSERT OR IGNORE INTO user_personality_bigfive
+        (user_id, extro, agreeableness, conscientiousness, neuroticism, openness)
+    VALUES (?,?,?,?,?,?)
+    """,
+        row,
+    )
+
 conn.commit()
 conn.close()
 print("测试数据已写入:", DB_PATH)

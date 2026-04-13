@@ -11,6 +11,7 @@ from flask import Blueprint, jsonify, request, session
 from config import DATABASE_PATH
 from modules.profile import load_matching_prefs
 from modules.psi import psi_intersection
+from modules.personality import get_personality_norm_pair_cached, trait_similarity_mixed
 
 recommend_bp = Blueprint("recommend_bp", __name__)
 
@@ -141,12 +142,13 @@ def _ensure_history_table():
 
 def _mode_weights(mode):
     if mode == "friend":
-        return 0.5, 0.5, 0.0
+        # friend / interest / skill / personality
+        return 0.4, 0.4, 0.0, 0.2
     if mode == "team":
-        return 0.2, 0.2, 0.6
+        return 0.2, 0.1, 0.5, 0.2
     if mode == "love":
-        return 0.2, 0.6, 0.2
-    return 0.5, 0.5, 0.0
+        return 0.1, 0.5, 0.1, 0.3
+    return 0.4, 0.4, 0.0, 0.2
 
 
 def _jaccard(a, b, inter):
@@ -155,10 +157,14 @@ def _jaccard(a, b, inter):
 
 
 def _compute_multi_recommendations(user_id, mode, top_n, skip=0):
-    w_f, w_i, w_s = _mode_weights(mode)
+    w_f, w_i, w_s, w_t = _mode_weights(mode)
     prefs = load_matching_prefs(user_id)
     conn = sqlite3.connect(DATABASE_PATH)
     cursor = conn.cursor()
+
+    # Big Five 性格向量（带缓存，避免重复 DB 查询）
+    # 如果用户关闭了性格分享，则不参与匹配
+    user_personality = get_personality_norm_pair_cached(user_id) if prefs.get("share_personality", True) else None
 
     cursor.execute("SELECT friend_id FROM friendships WHERE user_id=?", (user_id,))
     user_friends = set(row[0] for row in cursor.fetchall())
@@ -208,10 +214,32 @@ def _compute_multi_recommendations(user_id, mode, top_n, skip=0):
             ii_cnt = len(ii)
             si_cnt = len(si)
 
-        total = w_f * f_score + w_i * i_score + w_s * s_score
+        other_personality = get_personality_norm_pair_cached(other) if prefs.get("share_personality", True) else None
+        # 双向检查：如果候选人关闭了性格分享，也不使用其性格向量
+        if other_personality is not None:
+            other_prefs = load_matching_prefs(other)
+            if not other_prefs.get("share_personality", True):
+                other_personality = None
+        trait_mix, trait_sim, trait_comp = trait_similarity_mixed(
+            user_personality, other_personality, mode
+        )
+
+        total = w_f * f_score + w_i * i_score + w_s * s_score + w_t * trait_mix
         if total > 0:
             scored.append(
-                (other, total, f_score, i_score, s_score, len(fi), ii_cnt, si_cnt)
+                (
+                    other,
+                    total,
+                    f_score,
+                    i_score,
+                    s_score,
+                    len(fi),
+                    ii_cnt,
+                    si_cnt,
+                    trait_mix,
+                    trait_sim,
+                    trait_comp,
+                )
             )
 
     scored.sort(key=lambda x: -x[1])
@@ -230,7 +258,13 @@ def get_recommendations_multi(user_id, mode="friend", top_n=5, output_mode="id_o
     return [r[0] for r in rows]
 
 
-def _match_reason_text(common_interests, common_skills, common_friends, mode):
+def _match_reason_text(
+    common_interests,
+    common_skills,
+    common_friends,
+    mode,
+    trait_mix=0.0,
+):
     """生成可读的匹配理由。"""
     parts = []
     if common_interests > 0:
@@ -239,6 +273,8 @@ def _match_reason_text(common_interests, common_skills, common_friends, mode):
         parts.append(f"你们有 {common_skills} 项共同技能")
     if common_friends > 0:
         parts.append(f"你们有 {common_friends} 位共同好友")
+    if trait_mix and trait_mix > 0:
+        parts.append(f"性格匹配 {round(trait_mix * 100)}%")
     return "、".join(parts) if parts else "可能合拍"
 
 
@@ -246,12 +282,12 @@ _VALID_MODES = frozenset({"friend", "team", "love"})
 
 
 def _detailed_payload(user_id, mode, top_n=8, skip=0):
-    w_f, w_i, w_s = _mode_weights(mode)
+    w_f, w_i, w_s, w_t = _mode_weights(mode)
     rows = _compute_multi_recommendations(user_id, mode, top_n, skip)
     conn = sqlite3.connect(DATABASE_PATH)
     cursor = conn.cursor()
     out = []
-    for rid, total, f_sc, i_sc, s_sc, fi_cnt, ii_cnt, si_cnt in rows:
+    for rid, total, f_sc, i_sc, s_sc, fi_cnt, ii_cnt, si_cnt, trait_mix, trait_sim, trait_comp in rows:
         cursor.execute("SELECT username FROM users WHERE id=?", (rid,))
         row = cursor.fetchone()
         if not row:
@@ -271,7 +307,7 @@ def _detailed_payload(user_id, mode, top_n=8, skip=0):
                 "id": rid,
                 "username": row[0],
                 "score": round(total, 4),
-                "reason": _match_reason_text(ii_cnt, si_cnt, fi_cnt, mode),
+                "reason": _match_reason_text(ii_cnt, si_cnt, fi_cnt, mode, trait_mix),
                 "interests_preview": interest_tags,
                 "skills_preview": skill_tags,
                 "dims": {
@@ -281,7 +317,15 @@ def _detailed_payload(user_id, mode, top_n=8, skip=0):
                     "common_interests": ii_cnt,
                     "common_skills": si_cnt,
                     "common_friends": fi_cnt,
-                    "weights": {"friend": w_f, "interest": w_i, "skill": w_s},
+                    "trait_mix": round(trait_mix, 4),
+                    "trait_similar": round(trait_sim, 4),
+                    "trait_complement": round(trait_comp, 4),
+                    "weights": {
+                        "friend": w_f,
+                        "interest": w_i,
+                        "skill": w_s,
+                        "personality": w_t,
+                    },
                 },
             }
         )
@@ -338,7 +382,7 @@ def api_recommend_detailed(mode):
         {
             "mode": mode,
             "items": payload,
-            "privacy_note": "综合分由三部分组成：好友维度使用 PSI 交集原型并计算 Jaccard；兴趣与技能维度使用标签语义向量的余弦相似度。您可在隐私设置中关闭部分维度参与匹配。",
+            "privacy_note": "综合分由四部分组成：好友维度使用 PSI 交集原型并计算 Jaccard；兴趣与技能维度使用标签语义向量的余弦相似度；性格维度使用 Big Five 向量余弦相似度，并支持相似+互补混合策略。您可在隐私设置中关闭部分维度参与匹配。",
         }
     )
 

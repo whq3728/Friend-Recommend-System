@@ -11,6 +11,7 @@ const prefs = reactive({
   share_interests: true,
   share_skills: true,
   share_friend_graph: true,
+  share_personality: true,
 });
 
 onMounted(async () => {
@@ -19,6 +20,7 @@ onMounted(async () => {
     prefs.share_interests = !!p.share_interests;
     prefs.share_skills = !!p.share_skills;
     prefs.share_friend_graph = !!p.share_friend_graph;
+    prefs.share_personality = !!p.share_personality;
   } catch (e) {
     err.value = e instanceof Error ? e.message : "加载失败";
   } finally {
@@ -57,6 +59,9 @@ async function save() {
           </div>
           <div class="blob f" :class="{ off: !prefs.share_friend_graph }">
             <span>好友圈</span>
+          </div>
+          <div class="blob p" :class="{ off: !prefs.share_personality }">
+            <span>性格</span>
           </div>
           <div class="viz-mid">匹配</div>
         </div>
@@ -109,6 +114,23 @@ async function save() {
             class="switch"
             :class="{ on: prefs.share_friend_graph }"
             @click="prefs.share_friend_graph = !prefs.share_friend_graph"
+          >
+            <span class="knob" />
+          </button>
+        </label>
+
+        <label class="switch-row">
+          <div class="switch-text">
+            <span class="title">允许「性格标签」参与匹配</span>
+            <span class="hint">关闭后性格匹配维度不再参与，恋爱/好友推荐的准确度会下降</span>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            :aria-checked="prefs.share_personality"
+            class="switch"
+            :class="{ on: prefs.share_personality }"
+            @click="prefs.share_personality = !prefs.share_personality"
           >
             <span class="knob" />
           </button>
@@ -195,6 +217,11 @@ h2 {
   background: linear-gradient(135deg, #8b5cf6, #6d28d9);
   left: 38%;
   bottom: 12%;
+}
+.blob.p {
+  background: linear-gradient(135deg, #f59e0b, #d97706);
+  right: 28%;
+  bottom: 22%;
 }
 .viz-mid {
   position: absolute;

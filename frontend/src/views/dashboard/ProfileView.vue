@@ -20,6 +20,66 @@ const form = reactive({
   traits: "",
 });
 
+// Big Five 性格建模
+const personalityFilled = ref(false);
+const showPersonalityModal = ref(false);
+const personalityMode = ref("quick");
+const bigfiveQuick = reactive({
+  extro: 3,
+  agreeableness: 3,
+  conscientiousness: 3,
+  neuroticism: 3,
+  openness: 3,
+});
+const questionnaire = ref([3, 3, 3, 3, 3, 3, 3, 3, 3, 3]);
+const BIG5_QUESTIONS = [
+  "我在社交场合中通常更愿意主动交流。",
+  "我更喜欢热闹的活动而不是独处。",
+  "我通常愿意体谅他人、站在对方角度考虑。",
+  "当我和别人意见不同时，我更倾向于妥协而不是争辩。",
+  "我做事通常有计划，并能按时完成。",
+  "我会认真对待细节，尽量避免粗心。",
+  "我经常会因为小事而担心或烦恼。",
+  "遇到压力时，我容易出现情绪波动。",
+  "我喜欢尝试新事物和新的观点。",
+  "我对不同领域的想法保持好奇心。",
+];
+
+// Big Five 各维度对应的性格标签映射
+const BIG5_TRAIT_TAGS = {
+  extro: {
+    high: ["活泼开朗", "社交达人", "热情洋溢"],
+    mid: ["随和友好", "内外兼具"],
+    low: ["沉稳内敛", "独立思考", "安静专注"],
+  },
+  agreeableness: {
+    high: ["温柔体贴", "善解人意", "富有同理心"],
+    mid: ["通情达理", "懂得让步"],
+    low: ["直截了当", "理性客观", "立场坚定"],
+  },
+  conscientiousness: {
+    high: ["严谨认真", "自律可靠", "有条不紊"],
+    mid: ["有责任心", "目标明确"],
+    low: ["灵活随性", "自由不羁", "轻松自在"],
+  },
+  neuroticism: {
+    high: ["情感细腻", "心思敏感", "感知力强"],
+    mid: ["偶尔焦虑", "情绪波动"],
+    low: ["心态平和", "乐观积极", "抗压能力强"],
+  },
+  openness: {
+    high: ["好奇心强", "思维开放", "富有创意"],
+    mid: ["乐于尝试", "接受新事物"],
+    low: ["脚踏实地", "稳重务实", "传统可靠"],
+  },
+};
+
+function to1to5(x0to1) {
+  const x = Number(x0to1);
+  if (!Number.isFinite(x)) return 3;
+  return Math.max(1, Math.min(5, Math.round(x * 4 + 1)));
+}
+
 function lines(arr) {
   return (arr || []).join("\n");
 }
@@ -30,6 +90,51 @@ function parseList(text) {
     .map((s) => s.trim())
     .filter(Boolean);
 }
+
+// 根据 Big Five 值获取标签（1-2低，3中，4-5高）
+function getTraitLevel(value) {
+  if (value >= 4) return "high";
+  if (value <= 2) return "low";
+  return "mid";
+}
+
+// 生成性格标签
+function generateTraits(quickData) {
+  const tags = [];
+  const dims = ["extro", "agreeableness", "conscientiousness", "neuroticism", "openness"];
+  
+  dims.forEach((dim) => {
+    const level = getTraitLevel(quickData[dim]);
+    const traitList = BIG5_TRAIT_TAGS[dim][level];
+    // 每个维度随机选1-2个标签
+    const count = Math.random() > 0.5 ? 2 : 1;
+    const shuffled = [...traitList].sort(() => Math.random() - 0.5);
+    tags.push(...shuffled.slice(0, count));
+  });
+  
+  // 去重并限制数量
+  const uniqueTags = [...new Set(tags)];
+  return uniqueTags.slice(0, 8).join("、");
+}
+
+// 计算性格维度描述
+function getDimDescription(dim, value) {
+  const dimNames = {
+    extro: "外向性",
+    agreeableness: "宜人性",
+    conscientiousness: "尽责性",
+    neuroticism: "神经质",
+    openness: "开放性",
+  };
+  const level = getTraitLevel(value);
+  const levelText = { high: "高", mid: "中等", low: "低" };
+  return `${dimNames[dim]}: ${levelText[level]} (${value}/5)`;
+}
+
+const personalitySummary = computed(() => {
+  if (!personalityFilled.value) return "";
+  return `外向性:${bigfiveQuick.extro} 宜人:${bigfiveQuick.agreeableness} 尽责:${bigfiveQuick.conscientiousness} 神经质:${bigfiveQuick.neuroticism} 开放性:${bigfiveQuick.openness}`;
+});
 
 /** 资料完善度：已填写的核心字段占比 */
 const completeness = computed(() => {
@@ -59,12 +164,60 @@ onMounted(async () => {
     form.skills = lines(p.skills);
     form.projects = lines(p.projects);
     form.traits = lines(p.traits);
+    personalityFilled.value = !!p.personality_filled;
+    if (p.bigfive) {
+      bigfiveQuick.extro = to1to5(p.bigfive.extro);
+      bigfiveQuick.agreeableness = to1to5(p.bigfive.agreeableness);
+      bigfiveQuick.conscientiousness = to1to5(p.bigfive.conscientiousness);
+      bigfiveQuick.neuroticism = to1to5(p.bigfive.neuroticism);
+      bigfiveQuick.openness = to1to5(p.bigfive.openness);
+    }
   } catch (e) {
     err.value = e instanceof Error ? e.message : "加载失败";
   } finally {
     loading.value = false;
   }
 });
+
+function openPersonalityModal() {
+  showPersonalityModal.value = true;
+}
+
+function closePersonalityModal() {
+  showPersonalityModal.value = false;
+}
+
+async function submitPersonality() {
+  err.value = "";
+  try {
+    const body = {};
+    if (personalityMode.value === "quick") {
+      body.personality_mode = "quick";
+      body.bigfive_quick = { ...bigfiveQuick };
+    } else {
+      body.personality_mode = "questionnaire";
+      body.bigfive_answers = [...questionnaire.value];
+    }
+    await api("/api/profile", { method: "PUT", body });
+    
+    // 生成性格标签并更新 form.traits
+    const generatedTraits = generateTraits(bigfiveQuick);
+    form.traits = generatedTraits;
+    
+    // 同时保存性格标签
+    await api("/api/profile", { 
+      method: "PUT", 
+      body: { traits: parseList(form.traits) } 
+    });
+    
+    personalityFilled.value = true;
+    showPersonalityModal.value = false;
+    ok.value = "性格测试完成，性格标签已自动生成";
+    setTimeout(() => { ok.value = ""; }, 3000);
+  } catch (e) {
+    err.value = e instanceof Error ? e.message : "保存失败";
+  }
+}
 
 async function save() {
   err.value = "";
@@ -82,9 +235,11 @@ async function save() {
       traits: parseList(form.traits),
     };
     if (form.password.trim()) body.password = form.password.trim();
+    
     await api("/api/profile", { method: "PUT", body });
     form.password = "";
     ok.value = "已保存";
+    setTimeout(() => { ok.value = ""; }, 3000);
   } catch (e) {
     err.value = e instanceof Error ? e.message : "保存失败";
   }
@@ -95,6 +250,28 @@ async function save() {
   <div>
     <h2>个人信息</h2>
     <p class="sub">完善资料有助于获得更合适的推荐</p>
+    
+    <!-- 未完成性格测试提示 -->
+    <div v-if="!personalityFilled" class="panel warn-personality">
+      <h3>🧠 还未完成性格测试</h3>
+      <p class="sub2">完成 Big Five 性格建模后，系统会把"相似 + 互补"的性格维度融合到推荐里，从而提升推荐准确度。</p>
+      <button type="button" class="btn btn-primary" @click="openPersonalityModal">
+        开始性格测试
+      </button>
+    </div>
+    
+    <!-- 已完成性格测试提示 -->
+    <div v-else class="panel ok-personality">
+      <div class="ok-personality-header">
+        <span class="ok-icon">✓</span>
+        <span>已完成性格测试</span>
+      </div>
+      <p class="personality-summary">{{ personalitySummary }}</p>
+      <button type="button" class="btn btn-ghost btn-sm" @click="openPersonalityModal">
+        重新测试
+      </button>
+    </div>
+    
     <div v-if="err" class="toast err">{{ err }}</div>
     <div v-if="ok" class="toast ok">{{ ok }}</div>
     <p v-if="loading" class="muted">加载中…</p>
@@ -156,12 +333,179 @@ async function save() {
         <label>项目 / 比赛</label>
         <textarea v-model="form.projects" rows="3" placeholder="如：大创、比赛 A"></textarea>
       </div>
+      
+      <!-- 性格标签（由测试自动生成，也可手动编辑） -->
       <div class="field">
-        <label>性格标签（恋爱推荐用）</label>
-        <textarea v-model="form.traits" rows="3" placeholder="如：开朗、稳重"></textarea>
+        <label>
+          性格标签（恋爱推荐用）
+          <span class="auto-hint" v-if="personalityFilled">已自动生成，可手动调整</span>
+        </label>
+        <textarea v-model="form.traits" rows="3" placeholder="完成性格测试后将自动生成，如：活泼开朗、温柔体贴"></textarea>
       </div>
+
       <button type="button" class="btn btn-primary" @click="save">保存</button>
     </div>
+
+    <!-- 性格测试模态框 -->
+    <Teleport to="body">
+      <div v-if="showPersonalityModal" class="modal-overlay" @click.self="closePersonalityModal">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h3>🧠 性格测试</h3>
+            <button type="button" class="modal-close" @click="closePersonalityModal">×</button>
+          </div>
+          
+          <div class="modal-body">
+            <p class="modal-intro">选择测试方式，系统将根据你的回答自动生成性格标签</p>
+            
+            <div class="mode-tabs">
+              <button 
+                type="button" 
+                class="mode-tab" 
+                :class="{ active: personalityMode === 'quick' }"
+                @click="personalityMode = 'quick'"
+              >
+                快速选择
+              </button>
+              <button 
+                type="button" 
+                class="mode-tab" 
+                :class="{ active: personalityMode === 'questionnaire' }"
+                @click="personalityMode = 'questionnaire'"
+              >
+                10题问卷
+              </button>
+            </div>
+
+            <!-- 快速选择模式 -->
+            <div v-if="personalityMode === 'quick'" class="quick-mode">
+              <p class="mode-desc">快速选择你认为自己最符合的描述程度</p>
+              <div class="quick-items">
+                <div class="quick-item">
+                  <label>外向性（社交活跃度）</label>
+                  <div class="quick-scale">
+                    <span class="scale-label">内向</span>
+                    <input 
+                      type="range" 
+                      min="1" 
+                      max="5" 
+                      v-model.number="bigfiveQuick.extro"
+                      class="slider"
+                    />
+                    <span class="scale-label">外向</span>
+                    <span class="scale-value">{{ bigfiveQuick.extro }}</span>
+                  </div>
+                  <p class="scale-hint">{{ getDimDescription('extro', bigfiveQuick.extro) }}</p>
+                </div>
+                
+                <div class="quick-item">
+                  <label>宜人性（与人和善度）</label>
+                  <div class="quick-scale">
+                    <span class="scale-label">理性</span>
+                    <input 
+                      type="range" 
+                      min="1" 
+                      max="5" 
+                      v-model.number="bigfiveQuick.agreeableness"
+                      class="slider"
+                    />
+                    <span class="scale-label">温和</span>
+                    <span class="scale-value">{{ bigfiveQuick.agreeableness }}</span>
+                  </div>
+                  <p class="scale-hint">{{ getDimDescription('agreeableness', bigfiveQuick.agreeableness) }}</p>
+                </div>
+                
+                <div class="quick-item">
+                  <label>尽责性（做事靠谱度）</label>
+                  <div class="quick-scale">
+                    <span class="scale-label">随性</span>
+                    <input 
+                      type="range" 
+                      min="1" 
+                      max="5" 
+                      v-model.number="bigfiveQuick.conscientiousness"
+                      class="slider"
+                    />
+                    <span class="scale-label">严谨</span>
+                    <span class="scale-value">{{ bigfiveQuick.conscientiousness }}</span>
+                  </div>
+                  <p class="scale-hint">{{ getDimDescription('conscientiousness', bigfiveQuick.conscientiousness) }}</p>
+                </div>
+                
+                <div class="quick-item">
+                  <label>神经质（情绪稳定度）</label>
+                  <div class="quick-scale">
+                    <span class="scale-label">稳定</span>
+                    <input 
+                      type="range" 
+                      min="1" 
+                      max="5" 
+                      v-model.number="bigfiveQuick.neuroticism"
+                      class="slider"
+                    />
+                    <span class="scale-label">敏感</span>
+                    <span class="scale-value">{{ bigfiveQuick.neuroticism }}</span>
+                  </div>
+                  <p class="scale-hint">{{ getDimDescription('neuroticism', bigfiveQuick.neuroticism) }}</p>
+                </div>
+                
+                <div class="quick-item">
+                  <label>开放性（思维开放度）</label>
+                  <div class="quick-scale">
+                    <span class="scale-label">务实</span>
+                    <input 
+                      type="range" 
+                      min="1" 
+                      max="5" 
+                      v-model.number="bigfiveQuick.openness"
+                      class="slider"
+                    />
+                    <span class="scale-label">开放</span>
+                    <span class="scale-value">{{ bigfiveQuick.openness }}</span>
+                  </div>
+                  <p class="scale-hint">{{ getDimDescription('openness', bigfiveQuick.openness) }}</p>
+                </div>
+              </div>
+              
+              <!-- 预览生成的性格标签 -->
+              <div class="traits-preview">
+                <p class="preview-title">将生成的性格标签：</p>
+                <div class="preview-tags">
+                  {{ generateTraits(bigfiveQuick) }}
+                </div>
+              </div>
+            </div>
+
+            <!-- 问卷模式 -->
+            <div v-else class="questionnaire-mode">
+              <p class="mode-desc">请选择每题描述与你的符合程度（1=完全不符合，5=完全符合）</p>
+              <div class="q-list">
+                <div v-for="(q, idx) in BIG5_QUESTIONS" :key="'q' + idx" class="q-item">
+                  <div class="q-text">{{ idx + 1 }}. {{ q }}</div>
+                  <div class="q-options">
+                    <label v-for="n in 5" :key="'v' + idx + '_' + n" class="q-option">
+                      <input 
+                        type="radio" 
+                        :value="n" 
+                        v-model="questionnaire[idx]"
+                      />
+                      <span>{{ n }}</span>
+                    </label>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          <div class="modal-footer">
+            <button type="button" class="btn btn-ghost" @click="closePersonalityModal">取消</button>
+            <button type="button" class="btn btn-primary" @click="submitPersonality">
+              确认完成测试
+            </button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
   </div>
 </template>
 
@@ -219,6 +563,295 @@ h2 {
   background: var(--bg-page) !important;
 }
 .muted {
+  color: var(--text-muted);
+}
+
+.warn-personality {
+  border-color: rgba(245, 158, 11, 0.35);
+  margin-bottom: 1rem;
+}
+.sub2 {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  margin: 0.35rem 0 0.75rem;
+  line-height: 1.6;
+}
+
+.ok-personality {
+  border-color: rgba(34, 197, 94, 0.35);
+  margin-bottom: 1rem;
+  background: rgba(34, 197, 94, 0.05);
+}
+.ok-personality-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: #16a34a;
+  font-weight: 600;
+}
+.ok-icon {
+  width: 22px;
+  height: 22px;
+  background: #22c55e;
+  color: white;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+}
+.personality-summary {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  margin: 0.5rem 0;
+}
+
+.auto-hint {
+  font-size: 0.75rem;
+  color: #16a34a;
+  font-weight: normal;
+  margin-left: 0.5rem;
+}
+
+/* 模态框样式 */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 1rem;
+}
+.modal-content {
+  background: var(--bg-panel);
+  border-radius: 16px;
+  width: 100%;
+  max-width: 500px;
+  max-height: 90vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid var(--border-light);
+}
+.modal-header h3 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+.modal-close {
+  width: 32px;
+  height: 32px;
+  border: none;
+  background: var(--bg-page);
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 1.5rem;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+.modal-close:hover {
+  background: var(--border);
+  color: var(--text);
+}
+.modal-body {
+  padding: 1.25rem;
+  overflow-y: auto;
+  flex: 1;
+}
+.modal-intro {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  margin: 0 0 1rem;
+}
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  padding: 1rem 1.25rem;
+  border-top: 1px solid var(--border-light);
+}
+
+.mode-tabs {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1.25rem;
+}
+.mode-tab {
+  flex: 1;
+  padding: 0.75rem 1rem;
+  border: 2px solid var(--border);
+  background: var(--bg-page);
+  border-radius: 10px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  transition: all 0.2s;
+}
+.mode-tab:hover {
+  border-color: var(--jn-maroon);
+  color: var(--jn-maroon);
+}
+.mode-tab.active {
+  border-color: var(--jn-maroon);
+  background: rgba(180, 30, 50, 0.08);
+  color: var(--jn-maroon);
+}
+.mode-desc {
+  font-size: 0.85rem;
+  color: var(--text-subtle);
+  margin: 0 0 1rem;
+}
+
+/* 快速选择模式 */
+.quick-mode {
+  animation: fadeIn 0.2s ease;
+}
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.quick-items {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+.quick-item label {
+  display: block;
+  font-weight: 600;
+  font-size: 0.9rem;
+  margin-bottom: 0.5rem;
+}
+.quick-scale {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.scale-label {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  min-width: 28px;
+}
+.slider {
+  flex: 1;
+  height: 6px;
+  -webkit-appearance: none;
+  appearance: none;
+  background: var(--border);
+  border-radius: 3px;
+  outline: none;
+}
+.slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  background: var(--jn-maroon);
+  border-radius: 50%;
+  cursor: pointer;
+  transition: transform 0.2s;
+}
+.slider::-webkit-slider-thumb:hover {
+  transform: scale(1.15);
+}
+.slider::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  background: var(--jn-maroon);
+  border-radius: 50%;
+  cursor: pointer;
+  border: none;
+}
+.scale-value {
+  min-width: 24px;
+  text-align: center;
+  font-weight: 700;
+  color: var(--jn-maroon);
+  background: rgba(180, 30, 50, 0.1);
+  padding: 0.15rem 0.4rem;
+  border-radius: 6px;
+  font-size: 0.85rem;
+}
+.scale-hint {
+  font-size: 0.75rem;
+  color: var(--text-subtle);
+  margin: 0.3rem 0 0;
+}
+
+/* 性格标签预览 */
+.traits-preview {
+  margin-top: 1.5rem;
+  padding: 1rem;
+  background: var(--bg-page);
+  border-radius: 10px;
+  border: 1px dashed var(--border);
+}
+.preview-title {
+  font-size: 0.8rem;
+  color: var(--text-subtle);
+  margin: 0 0 0.5rem;
+}
+.preview-tags {
+  font-size: 0.9rem;
+  color: var(--jn-maroon);
+  font-weight: 600;
+  line-height: 1.6;
+}
+
+/* 问卷模式 */
+.questionnaire-mode {
+  animation: fadeIn 0.2s ease;
+}
+.q-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+.q-item {
+  background: var(--bg-page);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.85rem;
+}
+.q-text {
+  font-size: 0.88rem;
+  color: var(--text);
+  margin-bottom: 0.6rem;
+  line-height: 1.5;
+}
+.q-options {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.25rem;
+}
+.q-option {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  cursor: pointer;
+}
+.q-option input {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+  accent-color: var(--jn-maroon);
+}
+.q-option span {
+  font-size: 0.7rem;
   color: var(--text-muted);
 }
 </style>

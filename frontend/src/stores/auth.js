@@ -42,7 +42,7 @@ export const useAuthStore = defineStore("auth", () => {
   }
 
   /**
-   * @param {object} extra - phone, gender, grade, interests[], sms_code（绑定手机时必填）
+   * @param {object} extra - phone, gender, grade, interests[], skills[], sms_code（绑定手机时必填）
    */
   async function register(account, username, password, extra = {}) {
     await api("/api/auth/register", {
@@ -55,6 +55,7 @@ export const useAuthStore = defineStore("auth", () => {
         gender: extra.gender || "",
         grade: extra.grade || "",
         interests: extra.interests || [],
+        skills: extra.skills || [],
         sms_code: extra.sms_code || "",
       },
     });

@@ -20,6 +20,21 @@ const PRESET_TAGS = [
   "🧪 科研实验",
 ];
 
+const PRESET_SKILLS = [
+  "Python",
+  "Java",
+  "C++",
+  "前端开发",
+  "数据库",
+  "数据分析",
+  "机器学习",
+  "英语表达",
+  "PPT制作",
+  "写作表达",
+  "摄影",
+  "设计绘画",
+];
+
 const auth = useAuthStore();
 const router = useRouter();
 
@@ -31,6 +46,34 @@ const grade = ref("");
 const phone = ref("");
 const smsCode = ref("");
 const selectedTags = ref([]);
+const selectedSkills = ref([]);
+const personalityMode = ref("skip"); // skip | quick | questionnaire
+
+// 快速选择：每维 1..5
+const bigfiveQuick = ref({
+  extro: 3,
+  agreeableness: 3,
+  conscientiousness: 3,
+  neuroticism: 3,
+  openness: 3,
+});
+
+// 问卷：10 题，每题 1..5（Likert）
+const questionnaire = ref([3, 3, 3, 3, 3, 3, 3, 3, 3, 3]);
+
+const BIG5_QUESTIONS = [
+  "我在社交场合中通常更愿意主动交流。",
+  "我更喜欢热闹的活动而不是独处。",
+  "我通常愿意体谅他人、站在对方角度考虑。",
+  "当我和别人意见不同时，我更倾向于妥协而不是争辩。",
+  "我做事通常有计划，并能按时完成。",
+  "我会认真对待细节，尽量避免粗心。",
+  "我经常会因为小事而担心或烦恼。",
+  "遇到压力时，我容易出现情绪波动。",
+  "我喜欢尝试新事物和新的观点。",
+  "我对不同领域的想法保持好奇心。",
+];
+
 const err = ref("");
 const ok = ref(false);
 const sending = ref(false);
@@ -42,6 +85,12 @@ function toggleTag(t) {
   const i = selectedTags.value.indexOf(t);
   if (i >= 0) selectedTags.value = selectedTags.value.filter((x) => x !== t);
   else if (selectedTags.value.length < 12) selectedTags.value = [...selectedTags.value, t];
+}
+
+function toggleSkill(t) {
+  const i = selectedSkills.value.indexOf(t);
+  if (i >= 0) selectedSkills.value = selectedSkills.value.filter((x) => x !== t);
+  else if (selectedSkills.value.length < 12) selectedSkills.value = [...selectedSkills.value, t];
 }
 
 async function sendCode() {
@@ -71,7 +120,14 @@ async function submit() {
       grade: grade.value,
       phone: bindPhone.value ? phone.value.trim().replace(/\s/g, "") : "",
       interests: [...selectedTags.value],
+      skills: [...selectedSkills.value],
       sms_code: bindPhone.value ? smsCode.value.trim() : "",
+      personality_mode: personalityMode.value,
+      bigfive_quick:
+        personalityMode.value === "quick"
+          ? bigfiveQuick.value
+          : {},
+      bigfive_answers: personalityMode.value === "questionnaire" ? [...questionnaire.value] : [],
     });
     ok.value = true;
     setTimeout(() => router.push("/login"), 900);
@@ -125,6 +181,70 @@ async function submit() {
           <input v-model="password" type="password" required autocomplete="new-password" />
         </div>
 
+        <div class="section-title">🧠 性格测试（Big Five，支持跳过）</div>
+        <div class="field-row">
+          <div class="field half">
+            <label>选择方式</label>
+            <select v-model="personalityMode">
+              <option value="skip">跳过（稍后填写也可以）</option>
+              <option value="quick">快速选择（5 维各选 1..5）</option>
+              <option value="questionnaire">问卷（10 题 Likert 1..5）</option>
+            </select>
+          </div>
+        </div>
+
+        <div v-if="personalityMode === 'quick'" class="bigfive-quick">
+          <p class="tag-hint">快速选择：1 表示完全不符合，5 表示非常符合。</p>
+          <div class="field-row">
+            <div class="field half">
+              <label>外向性 Extroversion</label>
+              <select v-model="bigfiveQuick.extro">
+                <option v-for="n in 5" :key="'e' + n" :value="n">{{ n }}</option>
+              </select>
+            </div>
+            <div class="field half">
+              <label>宜人性 Agreeableness</label>
+              <select v-model="bigfiveQuick.agreeableness">
+                <option v-for="n in 5" :key="'a' + n" :value="n">{{ n }}</option>
+              </select>
+            </div>
+          </div>
+          <div class="field-row">
+            <div class="field half">
+              <label>尽责性 Conscientiousness</label>
+              <select v-model="bigfiveQuick.conscientiousness">
+                <option v-for="n in 5" :key="'c' + n" :value="n">{{ n }}</option>
+              </select>
+            </div>
+            <div class="field half">
+              <label>神经质 Neuroticism</label>
+              <select v-model="bigfiveQuick.neuroticism">
+                <option v-for="n in 5" :key="'n' + n" :value="n">{{ n }}</option>
+              </select>
+            </div>
+          </div>
+          <div class="field-row">
+            <div class="field">
+              <label>开放性 Openness</label>
+              <select v-model="bigfiveQuick.openness">
+                <option v-for="n in 5" :key="'o' + n" :value="n">{{ n }}</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div v-else-if="personalityMode === 'questionnaire'" class="bigfive-q">
+          <p class="tag-hint">问卷（10 题）。选择最符合你的选项。</p>
+          <div class="q-list">
+            <div v-for="(q, idx) in BIG5_QUESTIONS" :key="'q' + idx" class="q-item">
+              <div class="q-text">{{ idx + 1 }}. {{ q }}</div>
+              <select v-model="questionnaire[idx]">
+                <option v-for="n in 5" :key="'v' + idx + '_' + n" :value="n">{{ n }}</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
         <div class="section-title">
           <MapPinIcon class="h-ico" /> 兴趣标签（可多选）
         </div>
@@ -141,6 +261,21 @@ async function submit() {
           </button>
         </div>
         <p class="tag-hint">已选 {{ selectedTags.length }} 个，可随时在资料页修改</p>
+
+        <div class="section-title">🧩 技能标签（可多选）</div>
+        <div class="tags">
+          <button
+            v-for="t in PRESET_SKILLS"
+            :key="t"
+            type="button"
+            class="tag"
+            :class="{ on: selectedSkills.includes(t) }"
+            @click="toggleSkill(t)"
+          >
+            {{ t }}
+          </button>
+        </div>
+        <p class="tag-hint">已选 {{ selectedSkills.length }} 个，可随时在资料页修改</p>
 
         <div class="section-title">
           <DevicePhoneMobileIcon class="h-ico" /> 手机号（可选，用于验证码登录与找回密码）
@@ -280,5 +415,26 @@ h1 {
 }
 .tap-scale:active {
   transform: scale(0.98);
+}
+
+.bigfive-q .q-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  margin: 0.5rem 0 1rem;
+}
+
+.q-item {
+  background: var(--bg-page);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.75rem;
+}
+
+.q-text {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  margin-bottom: 0.4rem;
+  line-height: 1.5;
 }
 </style>

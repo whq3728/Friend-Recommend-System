@@ -3,7 +3,7 @@
 
 在 backend 目录执行: python init_db.py
 
-创建所有表；若 users 表为旧 schema（无 account 列），会自动迁移到新结构，
+创建所有表；若 users 表为旧 schema(无 account 列)，会自动迁移到新结构，
 并将明文密码转为 werkzeug 哈希存储。
 """
 import os
@@ -98,6 +98,20 @@ CREATE TABLE IF NOT EXISTS user_traits (
     user_id INTEGER NOT NULL,
     trait TEXT NOT NULL,
     UNIQUE(user_id, trait)
+)
+""")
+
+# ---------------------------------------------------------------------------
+# Big Five 性格向量表（用于推荐性格相似度建模）
+# ---------------------------------------------------------------------------
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS user_personality_bigfive (
+    user_id INTEGER PRIMARY KEY,
+    extro REAL NOT NULL,
+    agreeableness REAL NOT NULL,
+    conscientiousness REAL NOT NULL,
+    neuroticism REAL NOT NULL,
+    openness REAL NOT NULL
 )
 """)
 

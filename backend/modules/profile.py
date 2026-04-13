@@ -6,6 +6,13 @@ from flask import Blueprint, jsonify, request, session
 from werkzeug.security import generate_password_hash
 
 from config import DATABASE_PATH
+from modules.personality import (
+    DIM_KEYS,
+    bigfive_from_questionnaire_1to5,
+    bigfive_from_quick_1to5,
+    ensure_personality_table,
+    upsert_personality_bigfive,
+)
 
 profile_bp = Blueprint("profile", __name__)
 
@@ -36,11 +43,17 @@ def _ensure_prefs_table(conn):
             user_id INTEGER PRIMARY KEY,
             share_interests INTEGER NOT NULL DEFAULT 1,
             share_skills INTEGER NOT NULL DEFAULT 1,
-            share_friend_graph INTEGER NOT NULL DEFAULT 1
+            share_friend_graph INTEGER NOT NULL DEFAULT 1,
+            share_personality INTEGER NOT NULL DEFAULT 1
         )
         """
     )
-    conn.commit()
+    # 兼容旧表：添加 share_personality 列（如果不存在）
+    try:
+        conn.execute("ALTER TABLE user_matching_prefs ADD COLUMN share_personality INTEGER NOT NULL DEFAULT 1")
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass
     _prefs_table_ok = True
 
 
@@ -50,19 +63,20 @@ def load_matching_prefs(user_id):
     _ensure_prefs_table(conn)
     c = conn.cursor()
     c.execute(
-        "SELECT share_interests, share_skills, share_friend_graph FROM user_matching_prefs WHERE user_id=?",
+        "SELECT share_interests, share_skills, share_friend_graph, share_personality FROM user_matching_prefs WHERE user_id=?",
         (user_id,),
     )
     row = c.fetchone()
     if not row:
         c.execute("INSERT INTO user_matching_prefs (user_id) VALUES (?)", (user_id,))
         conn.commit()
-        row = (1, 1, 1)
+        row = (1, 1, 1, 1)
     conn.close()
     return {
         "share_interests": bool(row[0]),
         "share_skills": bool(row[1]),
         "share_friend_graph": bool(row[2]),
+        "share_personality": bool(row[3]),
     }
 
 
@@ -71,6 +85,7 @@ def save_matching_prefs(user_id, data):
     share_i = 1 if data.get("share_interests", True) else 0
     share_s = 1 if data.get("share_skills", True) else 0
     share_f = 1 if data.get("share_friend_graph", True) else 0
+    share_p = 1 if data.get("share_personality", True) else 0
     conn = _conn()
     _ensure_prefs_table(conn)
     c = conn.cursor()
@@ -79,18 +94,18 @@ def save_matching_prefs(user_id, data):
         c.execute(
             """
             UPDATE user_matching_prefs
-            SET share_interests=?, share_skills=?, share_friend_graph=?
+            SET share_interests=?, share_skills=?, share_friend_graph=?, share_personality=?
             WHERE user_id=?
             """,
-            (share_i, share_s, share_f, user_id),
+            (share_i, share_s, share_f, share_p, user_id),
         )
     else:
         c.execute(
             """
-            INSERT INTO user_matching_prefs (user_id, share_interests, share_skills, share_friend_graph)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO user_matching_prefs (user_id, share_interests, share_skills, share_friend_graph, share_personality)
+            VALUES (?, ?, ?, ?, ?)
             """,
-            (user_id, share_i, share_s, share_f),
+            (user_id, share_i, share_s, share_f, share_p),
         )
     conn.commit()
     conn.close()
@@ -121,6 +136,7 @@ def load_profile(user_id):
     """加载完整个人资料（含 account、username、标签列表等）。"""
     conn = _conn()
     c = conn.cursor()
+    ensure_personality_table()
     c.execute(
         "SELECT id, account, username, gender, grade, major, phone FROM users WHERE id=?",
         (user_id,),
@@ -138,7 +154,27 @@ def load_profile(user_id):
         "grade": grade or "",
         "major": major or "",
         "phone": phone or "",
+        "personality_filled": False,
+        "bigfive": None,
     }
+
+    # Big Five 性格向量（0..1）
+    try:
+        c.execute(
+            """
+            SELECT extro, agreeableness, conscientiousness, neuroticism, openness
+            FROM user_personality_bigfive
+            WHERE user_id=?
+            """,
+            (user_id,),
+        )
+        p_row = c.fetchone()
+        if p_row:
+            out["personality_filled"] = True
+            out["bigfive"] = {k: float(p_row[i]) for i, k in enumerate(DIM_KEYS)}
+    except sqlite3.Error:
+        # 兼容旧库：表不存在时，保持为未填写状态
+        pass
     for table, col, key in _LIST_SPECS:
         c.execute(f"SELECT {col} FROM {table} WHERE user_id=? ORDER BY id", (user_id,))
         out[key] = [r[0] for r in c.fetchall()]
@@ -262,6 +298,22 @@ def api_profile_put():
         conn.close()
         return jsonify({"error": f"保存失败：{e}"}), 500
     conn.close()
+
+    # ---------------------------
+    # Big Five 性格建模（可选）
+    # ---------------------------
+    personality_mode = (data.get("personality_mode") or "").strip()
+    bigfive_quick = data.get("bigfive_quick") or {}
+    bigfive_answers = data.get("bigfive_answers") or []
+    if personality_mode in ("quick", "questionnaire"):
+        try:
+            if personality_mode == "quick":
+                vec = bigfive_from_quick_1to5(bigfive_quick)
+            else:
+                vec = bigfive_from_questionnaire_1to5(list(bigfive_answers))
+            upsert_personality_bigfive(user_id, vec)
+        except ValueError as e:
+            return jsonify({"error": f"性格信息不合法：{e}"}), 400
 
     return jsonify(load_profile(user_id))
 

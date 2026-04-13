@@ -8,6 +8,11 @@ from flask import Blueprint, jsonify, request, session
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from config import DATABASE_PATH
+from modules.personality import (
+    bigfive_from_questionnaire_1to5,
+    bigfive_from_quick_1to5,
+    upsert_personality_bigfive,
+)
 
 user_bp = Blueprint("user", __name__)
 
@@ -162,7 +167,8 @@ def api_auth_forgot_reset():
 def api_auth_register():
     """
     注册接口：account 用于登录，username 为昵称，password 会哈希存储。
-    可选：phone、gender、grade、interests（兴趣标签列表）。
+    可选：phone、gender、grade、interests（兴趣标签列表）、skills（技能标签列表）。
+    可选：personality_mode（skip/quick/questionnaire），用于 Big Five 性格建模。
     """
     data = request.get_json(silent=True) or {}
     account = (data.get("account") or "").strip()
@@ -173,6 +179,10 @@ def api_auth_register():
     grade = (data.get("grade") or "").strip() or None
     reg_code = (data.get("sms_code") or "").strip()
     interests = _normalize_interests(data.get("interests"))
+    skills = _normalize_interests(data.get("skills"))
+    personality_mode = (data.get("personality_mode") or "skip").strip()
+    bigfive_quick = data.get("bigfive_quick") or {}
+    bigfive_answers = data.get("bigfive_answers") or []
 
     if not account or not username or not password:
         return jsonify({"error": "请输入账号、昵称和密码"}), 400
@@ -220,6 +230,11 @@ def api_auth_register():
                 "INSERT OR IGNORE INTO user_interests (user_id, interest) VALUES (?,?)",
                 (uid, it),
             )
+        for s in skills:
+            cursor.execute(
+                "INSERT OR IGNORE INTO user_skills (user_id, skill) VALUES (?,?)",
+                (uid, s),
+            )
         conn.commit()
     except sqlite3.IntegrityError:
         conn.close()
@@ -230,6 +245,27 @@ def api_auth_register():
             return jsonify({"error": "数据库缺少 phone 列，请运行 python init_db.py 升级"}), 500
         raise
     conn.close()
+
+    # ---------------------------
+    # Big Five 性格建模（可选）
+    # ---------------------------
+    try:
+        vec_0to1 = None
+        if personality_mode in ("skip", "none", "", None):
+            vec_0to1 = None
+        elif personality_mode == "quick":
+            vec_0to1 = bigfive_from_quick_1to5(bigfive_quick)
+        elif personality_mode == "questionnaire":
+            # 前端传 10 题答案：每题 1..5
+            vec_0to1 = bigfive_from_questionnaire_1to5(list(bigfive_answers))
+        else:
+            return jsonify({"error": "personality_mode 无效"}), 400
+
+        if vec_0to1 is not None:
+            upsert_personality_bigfive(uid, vec_0to1)
+    except ValueError as e:
+        return jsonify({"error": f"性格信息不合法：{e}"}), 400
+
     return jsonify({"ok": True}), 201
 
 

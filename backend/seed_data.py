@@ -1,193 +1,260 @@
 import sqlite3
 import random
-from faker import Faker
+import os
+from datetime import datetime, timedelta
 from werkzeug.security import generate_password_hash
 
-fake = Faker("zh_CN")
+DB_PATH = os.path.join(os.path.dirname(__file__), "database", "database.db")
 
-conn = sqlite3.connect("database/database.db")
+conn = sqlite3.connect(DB_PATH)
 cursor = conn.cursor()
 
-USER_COUNT = 1000
+# =========================
+# 基础数据池
+# =========================
 
-# ------------------------
-# ⚠️ 清空旧数据（保证实验可重复）
-# ------------------------
-cursor.execute("DELETE FROM friendships")
-cursor.execute("DELETE FROM user_interests")
-cursor.execute("DELETE FROM user_skills")
-cursor.execute("DELETE FROM user_traits")
-cursor.execute("DELETE FROM users")
-conn.commit()
-
-# ------------------------
-# 基础属性
-# ------------------------
-genders = ["男", "女"]
+majors = ["计算机", "软件工程", "人工智能", "通信工程", "电子信息", "自动化"]
 grades = ["大一", "大二", "大三", "大四"]
-majors = ["计算机", "软件工程", "人工智能", "数学", "金融", "机械"]
+genders = ["男", "女"]
 
-# ------------------------
-# 兴趣（分组）
-# ------------------------
-interest_groups = {
-    "运动": ["篮球", "足球", "跑步", "健身"],
-    "艺术": ["音乐", "吉他", "绘画", "摄影"],
-    "技术": ["编程", "AI", "开源", "科技"],
-    "娱乐": ["游戏", "电影", "动漫", "综艺"],
-    "生活": ["旅行", "美食", "阅读", "咖啡"]
+interests_pool = {
+    "娱乐": ["游戏", "音乐", "电影", "动漫"],
+    "运动": ["篮球", "足球", "健身"],
+    "技术": ["编程", "机器学习", "数据分析"],
+    "生活": ["美食", "旅行", "摄影"]
 }
 
-# ------------------------
-# 技能（半绑定）
-# ------------------------
-major_skill_map = {
-    "计算机": ["Python", "后端开发", "算法"],
-    "软件工程": ["Java", "系统设计", "测试"],
-    "人工智能": ["机器学习", "深度学习", "数据分析"],
-    "数学": ["建模", "统计", "数据分析"],
-    "金融": ["Excel", "数据分析", "投资"],
-    "机械": ["CAD", "制造", "工程设计"]
-}
 
-common_skills = ["PPT", "沟通", "写作", "英语"]
+skills_pool = [
+    "Python", "Java", "C++", "前端开发", "后端开发",
+    "机器学习", "数据分析", "UI设计", "产品设计"
+]
 
-# ------------------------
-# 性格
-# ------------------------
-traits_pool = ["外向", "内向", "幽默", "理性", "感性", "慢热", "社恐", "健谈"]
+traits_pool = [
+    "外向", "内向", "理性", "感性",
+    "幽默", "认真", "随和", "独立"
+]
 
-# ------------------------
-# ✅ 1. 用户（优化：密码只生成一次）
-# ------------------------
-hashed_password = generate_password_hash("123456", method="pbkdf2:sha256")
+# =========================
+# 工具函数
+# =========================
 
-user_data = []
+def gen_bigfive():
+    return (
+        round(random.uniform(0.2, 0.9), 2),  # extro
+        round(random.uniform(0.3, 0.9), 2),  # agree
+        round(random.uniform(0.3, 0.9), 2),  # cons
+        round(random.uniform(0.1, 0.7), 2),  # neuro
+        round(random.uniform(0.3, 0.9), 2),  # open
+    )
+
+def jaccard(a, b):
+    if not a or not b:
+        return 0
+    return len(a & b) / len(a | b)
+
+def gen_interests(openness):
+    k = int(3 + openness * 4)
+    return set(random.sample(interests_pool, min(k, len(interests_pool))))
+
+def gen_skills(conscientiousness):
+    k = int(2 + conscientiousness * 3)
+    return random.sample(skills_pool, min(k, len(skills_pool)))
+
+# =========================
+# 清空旧数据（可选）
+# =========================
+
+print("清空旧数据...")
+
+tables = [
+    "users", "friendships", "user_interests", "user_skills",
+    "user_traits", "user_personality_bigfive",
+    "friend_requests", "messages"
+]
+
+for t in tables:
+    cursor.execute(f"DELETE FROM {t}")
+
+conn.commit()
+
+# =========================
+# 1. 生成用户 + BigFive
+# =========================
+
+USER_COUNT = 200
+
+print("生成用户 + 性格...")
+
+user_bigfive = {}
+
 for i in range(USER_COUNT):
-    user_data.append((
-        f"user{i}",
-        fake.name(),
-        hashed_password,
-        random.choice(genders),
-        random.choice(grades),
-        random.choice(majors),
-        fake.phone_number()
-    ))
+    account = f"user{i}"
+    username = f"用户{i}"
+    password = generate_password_hash("123456")
 
-cursor.executemany("""
-INSERT INTO users (account, username, password, gender, grade, major, phone)
-VALUES (?, ?, ?, ?, ?, ?, ?)
-""", user_data)
+    gender = random.choice(genders)
+    grade = random.choice(grades)
+    major = random.choice(majors)
 
-conn.commit()
+    cursor.execute("""
+    INSERT INTO users (account, username, password, gender, grade, major)
+    VALUES (?, ?, ?, ?, ?, ?)
+    """, (account, username, password, gender, grade, major))
 
-# ------------------------
-# 读取用户信息（后面用）
-# ------------------------
-cursor.execute("SELECT id, major FROM users")
-users = cursor.fetchall()
+    uid = cursor.lastrowid
 
-# ------------------------
-# ✅ 2. 兴趣（带圈子）
-# ------------------------
-interest_data = []
+    bf = gen_bigfive()
+    user_bigfive[uid] = bf
 
-for user_id, _ in users:
-    if random.random() < 0.8:
-        group = random.choice(list(interest_groups.keys()))
-        interests = random.sample(interest_groups[group], random.randint(2, 3))
-    else:
-        all_interests = sum(interest_groups.values(), [])
-        interests = random.sample(all_interests, random.randint(2, 4))
-
-    for interest in interests:
-        interest_data.append((user_id, interest))
-
-cursor.executemany(
-    "INSERT OR IGNORE INTO user_interests (user_id, interest) VALUES (?, ?)",
-    interest_data
-)
+    cursor.execute("""
+    INSERT INTO user_personality_bigfive
+    VALUES (?, ?, ?, ?, ?, ?)
+    """, (uid, *bf))
 
 conn.commit()
 
-# ------------------------
-# ✅ 3. 技能（半绑定）
-# ------------------------
-skill_data = []
+user_ids = list(user_bigfive.keys())
 
-for user_id, major in users:
-    skills = []
+# =========================
+# 2. 兴趣（受 openness 控制）
+# =========================
 
-    if random.random() < 0.7:
-        skills += random.sample(major_skill_map[major], random.randint(1, 2))
+print("生成兴趣（性格驱动）...")
 
-    if random.random() < 0.3:
-        skills += random.sample(common_skills, 1)
+user_interests_map = {}
 
-    skills = list(set(skills))
+for uid in user_ids:
+    openness = user_bigfive[uid][4]
 
-    for skill in skills:
-        skill_data.append((user_id, skill))
+    interests = gen_interests(openness)
+    user_interests_map[uid] = interests
 
-cursor.executemany(
-    "INSERT OR IGNORE INTO user_skills (user_id, skill) VALUES (?, ?)",
-    skill_data
-)
+    for it in interests:
+        cursor.execute("""
+        INSERT INTO user_interests (user_id, interest)
+        VALUES (?, ?)
+        """, (uid, it))
 
 conn.commit()
 
-# ------------------------
-# ✅ 4. 性格
-# ------------------------
-trait_data = []
+# =========================
+# 3. 技能（受 conscientiousness 控制）
+# =========================
 
-for user_id, _ in users:
-    traits = random.sample(traits_pool, random.randint(1, 2))
+print("生成技能...")
+
+for uid in user_ids:
+    cons = user_bigfive[uid][2]
+    skills = gen_skills(cons)
+
+    for sk in skills:
+        cursor.execute("""
+        INSERT INTO user_skills (user_id, skill)
+        VALUES (?, ?)
+        """, (uid, sk))
+
+conn.commit()
+
+# =========================
+# 4. 性格标签
+# =========================
+
+print("生成性格标签...")
+
+for uid in user_ids:
+    traits = random.sample(traits_pool, k=random.randint(2, 4))
+
     for t in traits:
-        trait_data.append((user_id, t))
-
-cursor.executemany(
-    "INSERT OR IGNORE INTO user_traits (user_id, trait) VALUES (?, ?)",
-    trait_data
-)
+        cursor.execute("""
+        INSERT INTO user_traits (user_id, trait)
+        VALUES (?, ?)
+        """, (uid, t))
 
 conn.commit()
 
-# ------------------------
-# ✅ 5. 好友关系（基于兴趣相似）
-# ------------------------
-cursor.execute("SELECT user_id, interest FROM user_interests")
-interest_map = {}
+# =========================
+# 5. 好友关系（核心🔥）
+# =========================
 
-for uid, interest in cursor.fetchall():
-    interest_map.setdefault(uid, set()).add(interest)
+print("生成好友关系（兴趣 + 性格驱动）...")
 
-friendship_data = []
+for uid in user_ids:
+    my_interests = user_interests_map[uid]
 
-for user_id, _ in users:
-    candidates = random.sample(users, 50)
+    extro, agree = user_bigfive[uid][0], user_bigfive[uid][1]
 
-    count = 0
-    for other_id, _ in candidates:
-        if other_id == user_id:
+    target_friends = int(5 + extro * 15)
+
+    candidates = []
+
+    for other in user_ids:
+        if uid == other:
             continue
 
-        common = len(interest_map[user_id] & interest_map.get(other_id, set()))
-        prob = 0.1 + 0.2 * common
+        sim = jaccard(my_interests, user_interests_map[other])
+
+        # 综合概率
+        prob = sim * 0.7 + agree * 0.3
 
         if random.random() < prob:
-            friendship_data.append((user_id, other_id))
-            count += 1
+            candidates.append((other, sim))
 
-        if count >= random.randint(5, 15):
-            break
+    # 选最相似的
+    candidates.sort(key=lambda x: x[1], reverse=True)
+    friends = [x[0] for x in candidates[:target_friends]]
 
-cursor.executemany("""
-INSERT OR IGNORE INTO friendships (user_id, friend_id, created_at)
-VALUES (?, ?, datetime('now'))
-""", friendship_data)
+    for fid in friends:
+        created_at = datetime.now() - timedelta(days=random.randint(1, 365))
+
+        cursor.execute("""
+        INSERT OR IGNORE INTO friendships (user_id, friend_id, created_at)
+        VALUES (?, ?, ?)
+        """, (uid, fid, created_at.strftime("%Y-%m-%d %H:%M:%S")))
+
+        cursor.execute("""
+        INSERT OR IGNORE INTO friendships (user_id, friend_id, created_at)
+        VALUES (?, ?, ?)
+        """, (fid, uid, created_at.strftime("%Y-%m-%d %H:%M:%S")))
 
 conn.commit()
+
+# =========================
+# 6. 好友请求
+# =========================
+
+print("生成好友请求...")
+
+for _ in range(300):
+    u1, u2 = random.sample(user_ids, 2)
+
+    status = random.choice(["pending", "accepted", "rejected"])
+
+    cursor.execute("""
+    INSERT OR IGNORE INTO friend_requests (from_id, to_id, status)
+    VALUES (?, ?, ?)
+    """, (u1, u2, status))
+
+conn.commit()
+
+# =========================
+# 7. 聊天记录
+# =========================
+
+print("生成聊天记录...")
+
+msgs = ["你好", "在吗", "一起打游戏吗", "哈哈哈", "这个不错", "吃了吗"]
+
+for _ in range(1000):
+    u1, u2 = random.sample(user_ids, 2)
+
+    cursor.execute("""
+    INSERT INTO messages (sender_id, receiver_id, body)
+    VALUES (?, ?, ?)
+    """, (u1, u2, random.choice(msgs)))
+
+conn.commit()
+
 conn.close()
 
-print("✅ 已生成 1000 条高质量模拟数据（优化版，快速）")
+print("✅ 高质量测试数据生成完成！")

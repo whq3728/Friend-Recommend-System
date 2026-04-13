@@ -94,6 +94,50 @@ function matchReason(item) {
   return item?.reason || "可能合拍";
 }
 
+// -------- 多维度匹配展示（兴趣/技能/好友圈/性格）--------
+function dimInterestPercent(row) {
+  return Math.round((row?.dims?.interest_jaccard || 0) * 100);
+}
+
+function dimSkillPercent(row) {
+  return Math.round((row?.dims?.skill_jaccard || 0) * 100);
+}
+
+function dimFriendPercent(row) {
+  return Math.round((row?.dims?.friend_jaccard || 0) * 100);
+}
+
+function dimTraitPercent(row) {
+  return Math.round((row?.dims?.trait_mix || 0) * 100);
+}
+
+/**
+ * 四维度饼图：按四者之和归一化后生成 conic-gradient
+ * 文字展示的是“真实维度百分比”，饼图用于直观理解占比结构。
+ */
+function pieStyle(row) {
+  const i = dimInterestPercent(row);
+  const s = dimSkillPercent(row);
+  const f = dimFriendPercent(row);
+  const t = dimTraitPercent(row);
+  const total = i + s + f + t;
+
+  if (total <= 0) {
+    return { background: "conic-gradient(var(--pie-border) 0% 100%)" };
+  }
+
+  const pi = (i / total) * 100;
+  const ps = (s / total) * 100;
+  const pf = (f / total) * 100;
+  const end1 = pi;
+  const end2 = pi + ps;
+  const end3 = pi + ps + pf;
+
+  return {
+    background: `conic-gradient(var(--pie-interest) 0% ${end1}%, var(--pie-skill) ${end1}% ${end2}%, var(--pie-friend) ${end2}% ${end3}%, var(--pie-trait) ${end3}% 100%)`,
+  };
+}
+
 const greeting = computed(() => {
   const h = new Date().getHours();
   const name = auth.user?.username || "你";
@@ -313,11 +357,35 @@ onBeforeUnmount(() => {
             <div class="avatar-ring">{{ row.username?.slice(0, 1) || "?" }}</div>
             <h3 class="uname">{{ row.username }}</h3>
             <p class="fate">{{ fateLabel(row.score) }}</p>
-            <div class="score-ring-wrap">
-              <div class="score-ring" :style="{ '--p': matchPercent(row.score) + '%' }">
-                <span class="pct">{{ matchPercent(row.score) }}%</span>
+              <div class="dim-summary">
+                <div class="dim-pie" :style="pieStyle(row)">
+                  <div class="dim-pie-center">
+                  <span>{{ matchPercent(row.score) }}%</span>
+                  </div>
+                </div>
+                <div class="dim-text">
+                  <div class="dim-line">
+                  <span class="dot dot-interest"></span>
+                  <span class="legend-tag legend-interest">兴趣</span>
+                  匹配 {{ dimInterestPercent(row) }}%
+                  </div>
+                  <div class="dim-line">
+                  <span class="dot dot-skill"></span>
+                  <span class="legend-tag legend-skill">技能</span>
+                  匹配 {{ dimSkillPercent(row) }}%
+                  </div>
+                  <div class="dim-line">
+                  <span class="dot dot-friend"></span>
+                  <span class="legend-tag legend-friend">好友圈</span>
+                  匹配 {{ dimFriendPercent(row) }}%
+                  </div>
+                  <div class="dim-line">
+                  <span class="dot dot-trait"></span>
+                  <span class="legend-tag legend-trait">性格</span>
+                  匹配 {{ dimTraitPercent(row) }}%
+                  </div>
+                </div>
               </div>
-            </div>
             <p class="reason"><LightBulbIcon class="h-ico" /> {{ matchReason(row) }}</p>
             <div v-if="row.dims" class="dim-chips">
               <span v-if="row.dims.common_interests > 0" class="chip">兴趣重合 {{ row.dims.common_interests }}</span>
@@ -525,6 +593,120 @@ onBeforeUnmount(() => {
   justify-content: center;
   margin-bottom: 0.65rem;
 }
+.dim-summary {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 0.85rem;
+  margin-bottom: 0.65rem;
+}
+
+.dim-pie {
+  width: 98px;
+  height: 98px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  border: 2px solid var(--border-light);
+  box-shadow: inset 0 0 0 6px var(--bg-panel);
+
+  --pie-interest: #3b82f6;
+  --pie-skill: #059669;
+  --pie-friend: #f59e0b;
+  --pie-trait: #a855f7;
+  --pie-border: var(--border-light);
+}
+
+.dim-pie-center {
+  width: 62px;
+  height: 62px;
+  border-radius: 50%;
+  background: var(--bg-panel);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  font-weight: 800;
+  font-size: 0.72rem;
+  text-align: center;
+  padding: 0 0.25rem;
+}
+
+.dim-text {
+  text-align: left;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  line-height: 1.35;
+  min-width: 140px;
+}
+
+.dim-line {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  white-space: nowrap;
+  margin: 0.12rem 0;
+}
+
+.dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+.dot-interest {
+  background: var(--pie-interest);
+}
+
+.dot-skill {
+  background: var(--pie-skill);
+}
+
+.dot-friend {
+  background: var(--pie-friend);
+}
+
+.dot-trait {
+  background: var(--pie-trait);
+}
+
+.legend-tag {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 40px;
+  padding: 0.08rem 0.42rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  border: 1px solid transparent;
+}
+
+.legend-interest {
+  color: #1d4ed8;
+  background: rgba(59, 130, 246, 0.12);
+  border-color: rgba(59, 130, 246, 0.28);
+}
+
+.legend-skill {
+  color: #047857;
+  background: rgba(5, 150, 105, 0.12);
+  border-color: rgba(5, 150, 105, 0.28);
+}
+
+.legend-friend {
+  color: #b45309;
+  background: rgba(245, 158, 11, 0.12);
+  border-color: rgba(245, 158, 11, 0.28);
+}
+
+.legend-trait {
+  color: #7c3aed;
+  background: rgba(168, 85, 247, 0.12);
+  border-color: rgba(168, 85, 247, 0.28);
+}
+
 .score-ring {
   width: 88px;
   height: 88px;
