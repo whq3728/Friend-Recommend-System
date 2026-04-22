@@ -18,6 +18,8 @@ const code = ref("");
 const err = ref("");
 const sending = ref(false);
 const smsHint = ref("");
+const countdown = ref(0); // 倒计时秒数
+let countdownTimer = null;
 
 // 账号密码登录：成功后优先跳转到 guard 记录的原始页面
 async function submitAccount() {
@@ -31,19 +33,39 @@ async function submitAccount() {
   }
 }
 
-// 演示环境短信验证码发送
+// 短信验证码发送
 async function sendCode() {
   err.value = "";
   smsHint.value = "";
   sending.value = true;
   try {
     const res = await auth.sendSms(phone.value.trim().replace(/\s/g, ""));
-    smsHint.value = res?.hint || "验证码已发送";
+    if (res?.remaining_seconds) {
+      // 被限流，显示倒计时
+      startCountdown(res.remaining_seconds);
+      err.value = `发送太频繁，请 ${res.remaining_seconds} 秒后再试`;
+    } else {
+      smsHint.value = res?.hint || "验证码已发送";
+      startCountdown(60);
+    }
   } catch (e) {
     err.value = e instanceof Error ? e.message : "发送失败";
   } finally {
     sending.value = false;
   }
+}
+
+// 启动倒计时
+function startCountdown(seconds) {
+  countdown.value = seconds;
+  if (countdownTimer) clearInterval(countdownTimer);
+  countdownTimer = setInterval(() => {
+    countdown.value--;
+    if (countdown.value <= 0) {
+      clearInterval(countdownTimer);
+      countdownTimer = null;
+    }
+  }, 1000);
 }
 
 // 手机号验证码登录
@@ -129,13 +151,13 @@ async function submitPhone() {
         <div class="field code-row">
           <div class="grow">
             <label>验证码</label>
-            <input v-model="code" inputmode="numeric" placeholder="演示固定为 123456" maxlength="8" />
+            <input v-model="code" inputmode="numeric" placeholder="请输入6位验证码" maxlength="6" />
           </div>
-          <button type="button" class="btn btn-ghost btn-code tap-scale" :disabled="sending" @click="sendCode">
-            {{ sending ? "发送中…" : "获取验证码" }}
+          <button type="button" class="btn btn-ghost btn-code tap-scale" :disabled="sending || countdown > 0" @click="sendCode">
+            {{ countdown > 0 ? `${countdown}s` : sending ? "发送中…" : "获取验证码" }}
           </button>
         </div>
-        <p class="mini">需已在注册时绑定该手机号；演示环境验证码固定为 <strong>123456</strong>。</p>
+        <p class="mini">需已在注册时绑定该手机号，验证码5分钟内有效。</p>
         <button type="submit" class="btn btn-primary wide tap-scale">验证并登录</button>
       </form>
 

@@ -67,6 +67,8 @@ const skip = ref(0);
 const deckIndex = ref(0);
 const exhausted = ref(false);
 const PAGE = 8;
+// 已滑过用户集合（当前会话内暂时过滤，过期后重新可见）
+const skippedUsers = ref(new Set());
 
 const dragX = ref(0);
 const dragging = ref(false);
@@ -157,9 +159,14 @@ async function fetchBatch(append) {
     skip.value = 0;
     deckIndex.value = 0;
     exhausted.value = false;
+    skippedUsers.value = new Set(); // 换一批时清空滑过记录
   }
   try {
-    const url = `/api/recommend/${mode.value}/detailed?top=${PAGE}&skip=${skip.value}`;
+    // 将已滑过用户传给后端过滤
+    const skipped = Array.from(skippedUsers.value).join(",");
+    const params = new URLSearchParams({ top: PAGE, skip: skip.value });
+    if (skipped) params.set("exclude", skipped);
+    const url = `/api/recommend/${mode.value}/detailed?${params}`;
     const res = await api(url);
     const batch = res.items || [];
     if (append && batch.length === 0) {
@@ -203,6 +210,10 @@ async function loadMore() {
 
 function nextCard() {
   dragX.value = 0;
+  // 滑过当前卡片时记录（加好友后也视为滑过）
+  if (deckIndex.value < items.value.length) {
+    skippedUsers.value.add(items.value[deckIndex.value]?.id);
+  }
   if (deckIndex.value < items.value.length - 1) {
     deckIndex.value += 1;
   } else {
@@ -213,6 +224,8 @@ function nextCard() {
 function prevCard() {
   dragX.value = 0;
   if (deckIndex.value > 0) {
+    // 上一张时标记当前卡片为已滑过
+    skippedUsers.value.add(items.value[deckIndex.value]?.id);
     deckIndex.value -= 1;
   } else {
     ui.toast("已是第一张", "ok");
@@ -355,7 +368,10 @@ onBeforeUnmount(() => {
         >
           <div class="card-inner">
             <div class="avatar-ring">{{ row.username?.slice(0, 1) || "?" }}</div>
-            <h3 class="uname">{{ row.username }}</h3>
+            <h3 class="uname">
+              {{ row.username }}
+              <span v-if="row.gender" class="gender-tag" :class="'gender-' + row.gender">{{ row.gender }}</span>
+            </h3>
             <p class="fate">{{ fateLabel(row.score) }}</p>
               <div class="dim-summary">
                 <div class="dim-pie" :style="pieStyle(row)">
@@ -432,45 +448,53 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .rec {
-  max-width: 480px;
-  margin: 0 auto;
+  max-width: 100%;
 }
 .head {
-  margin-bottom: 1.25rem;
+  margin-bottom: 1.5rem;
+  text-align: center;
 }
 .greeting {
-  font-size: 0.9rem;
+  font-size: 0.95rem;
   color: var(--text-muted);
-  margin: 0 0 0.25rem;
+  margin: 0 0 0.35rem;
 }
 .head h2 {
-  margin: 0 0 0.3rem;
-  font-size: 1.5rem;
+  margin: 0 0 0.4rem;
+  font-size: 1.75rem;
 }
 .sub {
   margin: 0;
   color: var(--text-muted);
-  font-size: 0.85rem;
-  line-height: 1.45;
+  font-size: 0.9rem;
+  line-height: 1.5;
 }
 
 .mode-cards {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 0.65rem;
-  margin-bottom: 0.5rem;
+  gap: 0.75rem;
+  margin-bottom: 0.6rem;
 }
 @media (max-width: 640px) {
   .mode-cards {
     grid-template-columns: 1fr;
+    gap: 0.6rem;
+  }
+}
+@media (min-width: 1024px) {
+  .mode-cards {
+    max-width: 700px;
+    margin-left: auto;
+    margin-right: auto;
   }
 }
 .mode-card {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 0.3rem;
-  padding: 0.85rem 0.5rem;
+  gap: 0.35rem;
+  padding: 1rem 0.75rem;
   border-radius: var(--radius);
   border: 2px solid var(--border);
   background: var(--bg-panel);
@@ -486,21 +510,22 @@ onBeforeUnmount(() => {
 .mode-card.on {
   border-color: var(--accent);
   background: var(--accent-soft);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
 }
 .mode-ico {
-  width: 1.6rem;
-  height: 1.6rem;
+  width: 2rem;
+  height: 2rem;
   display: inline-block;
   flex-shrink: 0;
 }
 .mode-card .label {
   font-weight: 700;
-  font-size: 0.95rem;
+  font-size: 1rem;
 }
 .mode-card .desc {
-  font-size: 0.68rem;
+  font-size: 0.75rem;
   color: var(--text-muted);
-  line-height: 1.3;
+  line-height: 1.35;
 }
 .mode-hint {
   font-size: 0.8rem;
@@ -515,15 +540,15 @@ onBeforeUnmount(() => {
 }
 
 .deck-wrap {
-  margin-top: 0.5rem;
+  margin-top: 0.75rem;
 }
 .deck-hint {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  font-size: 0.78rem;
+  font-size: 0.82rem;
   color: var(--text-subtle);
-  margin-bottom: 0.65rem;
+  margin-bottom: 0.75rem;
   padding: 0 0.25rem;
 }
 .progress {
@@ -534,6 +559,19 @@ onBeforeUnmount(() => {
   position: relative;
   min-height: 420px;
   touch-action: pan-y;
+}
+@media (min-width: 640px) {
+  .deck {
+    max-width: 520px;
+    margin: 0 auto;
+    min-height: 480px;
+  }
+}
+@media (min-width: 1024px) {
+  .deck {
+    max-width: 580px;
+    min-height: 520px;
+  }
 }
 .swipe-card {
   position: absolute;
@@ -561,30 +599,71 @@ onBeforeUnmount(() => {
   pointer-events: none;
 }
 .card-inner {
-  padding: 1.35rem 1.25rem 1.15rem;
+  padding: 1.5rem 1.5rem 1.25rem;
   text-align: center;
 }
+@media (min-width: 640px) {
+  .card-inner {
+    padding: 1.75rem 2rem 1.5rem;
+  }
+}
 .avatar-ring {
-  width: 56px;
-  height: 56px;
-  margin: 0 auto 0.65rem;
+  width: 64px;
+  height: 64px;
+  margin: 0 auto 0.75rem;
   border-radius: 50%;
   background: linear-gradient(135deg, var(--accent-soft), var(--bg-page));
-  border: 2px solid var(--accent);
+  border: 3px solid var(--accent);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 1.35rem;
+  font-size: 1.5rem;
   font-weight: 800;
   color: var(--accent);
 }
+@media (min-width: 640px) {
+  .avatar-ring {
+    width: 72px;
+    height: 72px;
+    font-size: 1.65rem;
+  }
+}
 .uname {
   margin: 0;
-  font-size: 1.25rem;
+  font-size: 1.4rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.gender-tag {
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  vertical-align: middle;
+}
+
+.gender-tag.gender-男 {
+  background: rgba(59, 130, 246, 0.15);
+  color: #2563eb;
+  border: 1px solid rgba(59, 130, 246, 0.3);
+}
+
+.gender-tag.gender-女 {
+  background: rgba(236, 72, 153, 0.15);
+  color: #db2777;
+  border: 1px solid rgba(236, 72, 153, 0.3);
+}
+@media (min-width: 640px) {
+  .uname {
+    font-size: 1.6rem;
+  }
 }
 .fate {
-  margin: 0.25rem 0 0.5rem;
-  font-size: 0.82rem;
+  margin: 0.35rem 0 0.6rem;
+  font-size: 0.88rem;
   color: var(--accent);
   font-weight: 700;
 }
@@ -597,13 +676,18 @@ onBeforeUnmount(() => {
   display: flex;
   justify-content: center;
   align-items: center;
-  gap: 0.85rem;
-  margin-bottom: 0.65rem;
+  gap: 1rem;
+  margin-bottom: 0.75rem;
+}
+@media (min-width: 640px) {
+  .dim-summary {
+    gap: 1.5rem;
+  }
 }
 
 .dim-pie {
-  width: 98px;
-  height: 98px;
+  width: 100px;
+  height: 100px;
   border-radius: 50%;
   display: grid;
   place-items: center;
@@ -616,10 +700,16 @@ onBeforeUnmount(() => {
   --pie-trait: #a855f7;
   --pie-border: var(--border-light);
 }
+@media (min-width: 640px) {
+  .dim-pie {
+    width: 110px;
+    height: 110px;
+  }
+}
 
 .dim-pie-center {
-  width: 62px;
-  height: 62px;
+  width: 66px;
+  height: 66px;
   border-radius: 50%;
   background: var(--bg-panel);
   display: flex;
@@ -627,17 +717,30 @@ onBeforeUnmount(() => {
   justify-content: center;
   color: var(--text-muted);
   font-weight: 800;
-  font-size: 0.72rem;
+  font-size: 0.78rem;
   text-align: center;
   padding: 0 0.25rem;
+}
+@media (min-width: 640px) {
+  .dim-pie-center {
+    width: 74px;
+    height: 74px;
+    font-size: 0.85rem;
+  }
 }
 
 .dim-text {
   text-align: left;
-  font-size: 0.82rem;
+  font-size: 0.85rem;
   color: var(--text-muted);
-  line-height: 1.35;
-  min-width: 140px;
+  line-height: 1.4;
+  min-width: 150px;
+}
+@media (min-width: 640px) {
+  .dim-text {
+    font-size: 0.9rem;
+    min-width: 170px;
+  }
 }
 
 .dim-line {

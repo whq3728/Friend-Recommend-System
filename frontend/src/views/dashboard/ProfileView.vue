@@ -247,7 +247,7 @@ async function save() {
 </script>
 
 <template>
-  <div>
+  <div class="profile-page">
     <h2>个人信息</h2>
     <p class="sub">完善资料有助于获得更合适的推荐</p>
     
@@ -510,6 +510,15 @@ async function save() {
 </template>
 
 <style scoped>
+.profile-page {
+  max-width: 100%;
+}
+@media (min-width: 768px) {
+  .profile-page {
+    max-width: 720px;
+    margin: 0 auto;
+  }
+}
 h2 {
   margin: 0 0 0.35rem;
 }

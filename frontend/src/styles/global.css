@@ -185,6 +185,19 @@ h1, h2, h3 {
   }
 }
 
+/* 响应式辅助类 */
+@media (min-width: 640px) {
+  .sm\:hidden { display: none !important; }
+  .md\:show { display: revert !important; }
+}
+@media (max-width: 639px) {
+  .md-only { display: none !important; }
+}
+@media (min-width: 1024px) {
+  .lg\:hidden { display: none !important; }
+  .lg\:show { display: revert !important; }
+}
+
 /* 轻量加载脉动（可配合 class="loading-pulse"） */
 .loading-pulse {
   animation: pulse-op 1s ease-in-out infinite;

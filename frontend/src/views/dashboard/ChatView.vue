@@ -282,7 +282,7 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .chat {
-  max-width: 560px;
+  max-width: 100%;
   margin: 0 auto;
   width: 100%;
   display: flex;
@@ -292,6 +292,11 @@ onBeforeUnmount(() => {
   height: calc(100dvh - 8rem);
   max-height: calc(100dvh - 8rem);
   min-height: 260px;
+}
+@media (min-width: 768px) {
+  .chat {
+    max-width: 640px;
+  }
 }
 .top {
   display: flex;

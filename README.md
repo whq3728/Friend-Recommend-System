@@ -95,6 +95,11 @@ python demo_psi.py
 | `FLASK_SECRET_KEY` | Flask session 密钥，**生产环境务必设置** | 内置占位字符串 |
 | `SEMANTIC_MODEL_NAME` | SentenceTransformer 模型名称 | `paraphrase-multilingual-MiniLM-L12-v2` |
 | `SEMANTIC_MATCH_THRESHOLD` | 语义匹配阈值（0-1） | `0.55` |
+| `ALIYUN_ACCESS_KEY_ID` | 阿里云 AccessKey ID（短信服务） | `your-access-key-id` |
+| `ALIYUN_ACCESS_KEY_SECRET` | 阿里云 AccessKey Secret（短信服务） | `your-access-key-secret` |
+| `ALIYUN_SMS_REGION_ID` | 阿里云短信服务区域 | `cn-hangzhou` |
+| `ALIYUN_SMS_SIGN_NAME` | 短信签名名称（需在阿里云控制台申请） | `校园社交平台` |
+| `ALIYUN_SMS_TEMPLATE_CODE` | 短信模板 CODE（需在阿里云控制台申请） | `SMS_xxxxxxx` |
 
 ## 根目录 npm 脚本说明
 
@@ -132,7 +137,7 @@ python demo_psi.py
 
 ## 生产部署注意
 
-- 将演示短信验证码（固定 `123456`）替换为真实短信服务并做限流
+- 配置阿里云短信服务（设置环境变量 `ALIYUN_ACCESS_KEY_ID`、`ALIYUN_ACCESS_KEY_SECRET`、`ALIYUN_SMS_SIGN_NAME`、`ALIYUN_SMS_TEMPLATE_CODE`）
 - 设置强随机 `FLASK_SECRET_KEY`
 - 如需更精准的语义匹配，安装 SentenceTransformer：`pip install sentence-transformers`
 - 前端构建：`npm run frontend:build`，静态资源在 `frontend/dist/`

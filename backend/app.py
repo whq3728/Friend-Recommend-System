@@ -26,6 +26,13 @@ from modules.user import user_bp
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "your_secret_key")
 
+# 生产环境配置
+ENV = os.environ.get("FLASK_ENV", "development")
+if ENV == "production":
+    app.config["DEBUG"] = False
+    # 可选：关闭详细错误信息
+    app.config["PROPAGATE_EXCEPTIONS"] = False
+
 
 def _apply_cors(resp):
     o = request.headers.get("Origin")

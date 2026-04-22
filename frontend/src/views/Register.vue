@@ -78,6 +78,8 @@ const err = ref("");
 const ok = ref(false);
 const sending = ref(false);
 const smsHint = ref("");
+const countdown = ref(0); // 倒计时秒数
+let countdownTimer = null;
 
 const bindPhone = computed(() => phone.value.replace(/\s/g, "").length >= 11);
 
@@ -99,12 +101,32 @@ async function sendCode() {
   sending.value = true;
   try {
     const res = await auth.sendSms(phone.value.trim().replace(/\s/g, ""));
-    smsHint.value = res?.hint || "";
+    if (res?.remaining_seconds) {
+      // 被限流，显示倒计时
+      startCountdown(res.remaining_seconds);
+      err.value = `发送太频繁，请 ${res.remaining_seconds} 秒后再试`;
+    } else {
+      smsHint.value = res?.hint || "验证码已发送";
+      startCountdown(60);
+    }
   } catch (e) {
     err.value = e instanceof Error ? e.message : "发送失败";
   } finally {
     sending.value = false;
   }
+}
+
+// 启动倒计时
+function startCountdown(seconds) {
+  countdown.value = seconds;
+  if (countdownTimer) clearInterval(countdownTimer);
+  countdownTimer = setInterval(() => {
+    countdown.value--;
+    if (countdown.value <= 0) {
+      clearInterval(countdownTimer);
+      countdownTimer = null;
+    }
+  }, 1000);
 }
 
 async function submit() {
@@ -284,12 +306,12 @@ async function submit() {
           <div class="grow">
             <input v-model="phone" inputmode="numeric" maxlength="11" placeholder="不填则仅用账号密码登录" />
           </div>
-          <button type="button" class="btn btn-ghost btn-sm" :disabled="sending || !bindPhone" @click="sendCode">
-            获取验证码
+          <button type="button" class="btn btn-ghost btn-sm" :disabled="sending || !bindPhone || countdown > 0" @click="sendCode">
+            {{ countdown > 0 ? `${countdown}s` : sending ? "发送中…" : "获取验证码" }}
           </button>
         </div>
         <div v-if="bindPhone" class="field">
-          <input v-model="smsCode" maxlength="8" placeholder="验证码（演示 123456）" />
+          <input v-model="smsCode" maxlength="6" inputmode="numeric" placeholder="请输入6位验证码" />
         </div>
         <div v-if="smsHint" class="toast ok small-toast">{{ smsHint }}</div>
 

@@ -13,19 +13,41 @@ const newPassword = ref("");
 const err = ref("");
 const ok = ref("");
 const sending = ref(false);
+const countdown = ref(0); // 倒计时秒数
+let countdownTimer = null;
 
 async function sendCode() {
   err.value = "";
   ok.value = "";
   sending.value = true;
   try {
-    await auth.sendSms(phone.value.trim().replace(/\s/g, ""));
-    ok.value = "验证码已发送（演示为 123456）";
+    const res = await auth.sendSms(phone.value.trim().replace(/\s/g, ""));
+    if (res?.remaining_seconds) {
+      // 被限流，显示倒计时
+      startCountdown(res.remaining_seconds);
+      err.value = `发送太频繁，请 ${res.remaining_seconds} 秒后再试`;
+    } else {
+      ok.value = "验证码已发送";
+      startCountdown(60);
+    }
   } catch (e) {
     err.value = e instanceof Error ? e.message : "发送失败";
   } finally {
     sending.value = false;
   }
+}
+
+// 启动倒计时
+function startCountdown(seconds) {
+  countdown.value = seconds;
+  if (countdownTimer) clearInterval(countdownTimer);
+  countdownTimer = setInterval(() => {
+    countdown.value--;
+    if (countdown.value <= 0) {
+      clearInterval(countdownTimer);
+      countdownTimer = null;
+    }
+  }, 1000);
 }
 
 async function submit() {
@@ -49,7 +71,7 @@ async function submit() {
   <AuthHero>
     <div class="card-shell">
       <h1>找回密码</h1>
-      <p class="hint">通过手机号验证后设置新密码（演示验证码：<strong>123456</strong>）</p>
+      <p class="hint">通过手机号验证后设置新密码，验证码5分钟内有效</p>
       <div v-if="err" class="toast err">{{ err }}</div>
       <div v-if="ok" class="toast ok">{{ ok }}</div>
       <form @submit.prevent="submit">
@@ -60,10 +82,10 @@ async function submit() {
         <div class="field code-row">
           <div class="grow">
             <label>验证码</label>
-            <input v-model="code" required maxlength="8" placeholder="123456" />
+            <input v-model="code" required maxlength="6" inputmode="numeric" placeholder="请输入6位验证码" />
           </div>
-          <button type="button" class="btn btn-ghost btn-code" :disabled="sending" @click="sendCode">
-            {{ sending ? "…" : "获取验证码" }}
+          <button type="button" class="btn btn-ghost btn-code" :disabled="sending || countdown > 0" @click="sendCode">
+            {{ countdown > 0 ? `${countdown}s` : sending ? "…" : "获取验证码" }}
           </button>
         </div>
         <div class="field">

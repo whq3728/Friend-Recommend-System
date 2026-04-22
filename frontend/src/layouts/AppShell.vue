@@ -222,13 +222,25 @@ watch(
 .main {
   flex: 1;
   padding: 1rem 1.1rem 2rem;
-  max-width: 1100px;
-  margin: 0 auto;
   width: 100%;
 }
-@media (min-width: 768px) {
+@media (min-width: 640px) {
   .main {
-    padding: 1.5rem 1.5rem 2.5rem;
+    max-width: 960px;
+    margin: 0 auto;
+    padding: 1.25rem 1.5rem 2.5rem;
+  }
+}
+@media (min-width: 1024px) {
+  .main {
+    max-width: 1200px;
+    padding: 1.5rem 2rem 3rem;
+  }
+  .top {
+    padding: 0.75rem 1.5rem;
+  }
+  .logo {
+    font-size: 1.35rem;
   }
 }
 

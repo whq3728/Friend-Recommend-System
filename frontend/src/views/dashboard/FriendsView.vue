@@ -323,7 +323,13 @@ const friendVirtualizer = useVirtualizer(
 
 <style scoped>
 .friends-page {
-  max-width: 720px;
+  max-width: 100%;
+}
+@media (min-width: 768px) {
+  .friends-page {
+    max-width: 900px;
+    margin: 0 auto;
+  }
 }
 h2 {
   margin: 0 0 0.35rem;
@@ -437,8 +443,14 @@ h3 {
 }
 .friend-cards {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-  gap: 1rem;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 1.25rem;
+}
+@media (min-width: 1024px) {
+  .friend-cards {
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 1.5rem;
+  }
 }
 .friend-card {
   display: flex;

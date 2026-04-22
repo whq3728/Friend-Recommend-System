@@ -1,23 +1,24 @@
-# modules/user.py — 认证 API（登录、注册、登出、当前用户、演示短信）
+# modules/user.py — 认证 API（登录、注册、登出、当前用户）
 # 登录使用 account + password；username 仅作昵称显示，不参与登录
-# 演示：固定验证码 123456，内存存储（进程重启失效）
+# 手机验证码：使用阿里云短信服务（需配置环境变量）
 import sqlite3
 import time
 
 from flask import Blueprint, jsonify, request, session
 from werkzeug.security import check_password_hash, generate_password_hash
 
-from config import DATABASE_PATH
+from config import DATABASE_PATH, SMS_CODE_EXPIRE_SECONDS, SMS_SEND_INTERVAL_SECONDS
 from modules.personality import (
     bigfive_from_questionnaire_1to5,
     bigfive_from_quick_1to5,
     upsert_personality_bigfive,
 )
+from modules.sms import send_sms, store_code, verify_code
 
 user_bp = Blueprint("user", __name__)
 
-MOCK_SMS_CODE = "123456"
-_sms_codes = {}  # phone -> {"code": str, "ts": float}
+# 发送记录：手机号 -> 上次发送时间（用于频率限制）
+_sms_send_times: dict[str, float] = {}
 
 
 def _conn():
@@ -28,21 +29,6 @@ def _conn():
 def _normalize_phone(p):
     p = (p or "").strip().replace(" ", "")
     return p if p else ""
-
-
-def _store_sms(phone):
-    _sms_codes[phone] = {"code": MOCK_SMS_CODE, "ts": time.time()}
-
-
-def _verify_sms(phone, code):
-    if not phone or not code:
-        return False
-    ent = _sms_codes.get(phone)
-    if not ent:
-        return False
-    if time.time() - ent["ts"] > 600:
-        return False
-    return ent["code"] == (code or "").strip()
 
 
 def _normalize_interests(raw, max_items=20):
@@ -96,13 +82,13 @@ def api_auth_login():
 
 @user_bp.route("/api/auth/login-phone", methods=["POST"])
 def api_auth_login_phone():
-    """演示：手机号 + 验证码登录（验证码先发 /api/auth/sms/send）。"""
+    """手机号 + 验证码登录（验证码先发 /api/auth/sms/send）。"""
     data = request.get_json(silent=True) or {}
     phone = _normalize_phone(data.get("phone"))
     code = (data.get("code") or "").strip()
     if len(phone) < 11:
         return jsonify({"error": "请输入有效手机号"}), 400
-    if not _verify_sms(phone, code):
+    if not verify_code(phone, code, SMS_CODE_EXPIRE_SECONDS):
         return jsonify({"error": "验证码无效或已过期，请先获取验证码"}), 400
 
     conn = _conn()
@@ -122,28 +108,58 @@ def api_auth_login_phone():
 
 @user_bp.route("/api/auth/sms/send", methods=["POST"])
 def api_auth_sms_send():
-    """发送演示验证码（固定为 123456）。"""
+    """发送短信验证码（通过阿里云短信服务）。"""
     data = request.get_json(silent=True) or {}
     phone = _normalize_phone(data.get("phone"))
     if len(phone) < 11:
         return jsonify({"error": "请输入有效手机号"}), 400
-    _store_sms(phone)
-    return jsonify({
-        "ok": True,
-        "hint": "演示环境验证码固定为 123456",
-    })
+
+    # 频率限制：同一手机号60秒内只能发送一次
+    current_time = time.time()
+    last_send_time = _sms_send_times.get(phone, 0)
+    if current_time - last_send_time < SMS_SEND_INTERVAL_SECONDS:
+        remaining = int(SMS_SEND_INTERVAL_SECONDS - (current_time - last_send_time))
+        return jsonify({
+            "error": f"发送太频繁，请 {remaining} 秒后再试",
+            "remaining_seconds": remaining,
+        }), 429
+
+    # 发送短信
+    success, message, code = send_sms(phone)
+
+    if success:
+        # 真实发送成功，存储验证码用于校验
+        store_code(phone, code)
+        _sms_send_times[phone] = current_time
+        return jsonify({
+            "ok": True,
+            "message": "验证码已发送",
+        })
+    else:
+        # 演示模式或发送失败
+        if code:
+            # 演示模式：存储验证码并返回提示
+            store_code(phone, code)
+            _sms_send_times[phone] = current_time
+            return jsonify({
+                "ok": True,
+                "hint": message,
+                "demo_mode": True,
+            })
+        else:
+            return jsonify({"error": message}), 500
 
 
 @user_bp.route("/api/auth/forgot-reset", methods=["POST"])
 def api_auth_forgot_reset():
-    """演示：手机号 + 验证码重置密码。"""
+    """手机号 + 验证码重置密码。"""
     data = request.get_json(silent=True) or {}
     phone = _normalize_phone(data.get("phone"))
     code = (data.get("code") or "").strip()
     new_password = data.get("new_password") or ""
     if len(phone) < 11:
         return jsonify({"error": "请输入有效手机号"}), 400
-    if not _verify_sms(phone, code):
+    if not verify_code(phone, code, SMS_CODE_EXPIRE_SECONDS):
         return jsonify({"error": "验证码无效或已过期"}), 400
     if len(new_password) < 4:
         return jsonify({"error": "新密码至少 4 位"}), 400
@@ -198,7 +214,7 @@ def api_auth_register():
     if phone:
         if len(phone) < 11:
             return jsonify({"error": "手机号格式不正确"}), 400
-        if not _verify_sms(phone, reg_code):
+        if not verify_code(phone, reg_code, SMS_CODE_EXPIRE_SECONDS):
             return jsonify({"error": "短信验证码无效，请先获取并填写正确验证码"}), 400
 
     pwd_hash = generate_password_hash(password)

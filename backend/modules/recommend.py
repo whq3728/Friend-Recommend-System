@@ -1,8 +1,10 @@
 # modules/recommend.py — 多场景推荐 API（好友 PSI + Jaccard；兴趣/技能语义相似）
 import json
 import os
+import random
 import sqlite3
 import threading
+from datetime import datetime
 
 import numpy as np
 
@@ -156,7 +158,9 @@ def _jaccard(a, b, inter):
     return len(inter) / len(u) if u else 0.0
 
 
-def _compute_multi_recommendations(user_id, mode, top_n, skip=0):
+def _compute_multi_recommendations(user_id, mode, top_n, skip=0, exclude_ids=None):
+    if exclude_ids is None:
+        exclude_ids = set()
     w_f, w_i, w_s, w_t = _mode_weights(mode)
     prefs = load_matching_prefs(user_id)
     conn = sqlite3.connect(DATABASE_PATH)
@@ -181,13 +185,37 @@ def _compute_multi_recommendations(user_id, mode, top_n, skip=0):
     if not prefs["share_skills"]:
         user_skills = set()
 
+    # 恋爱模式：获取当前用户性别，只推荐异性
+    user_gender = None
+    target_genders = None  # 恋爱模式要推荐的性别
+    if mode == "love":
+        cursor.execute("SELECT gender FROM users WHERE id=?", (user_id,))
+        user_gender = cursor.fetchone()
+        user_gender = user_gender[0] if user_gender else None
+        if user_gender == "男":
+            target_genders = {"女"}  # 男用户推荐女
+        elif user_gender == "女":
+            target_genders = {"男"}  # 女用户推荐男
+
     cursor.execute("SELECT id FROM users WHERE id != ?", (user_id,))
     all_users = [row[0] for row in cursor.fetchall()]
 
     scored = []
     for other in all_users:
+        # 跳过已是好友的用户
         if other in user_friends:
             continue
+        # 跳过前端已滑过的用户（暂时过滤）
+        if other in exclude_ids:
+            continue
+
+        # 恋爱模式：只推荐异性
+        if target_genders:
+            cursor.execute("SELECT gender FROM users WHERE id=?", (other,))
+            other_gender = cursor.fetchone()
+            other_gender = other_gender[0] if other_gender else None
+            if other_gender not in target_genders:
+                continue
 
         cursor.execute("SELECT friend_id FROM friendships WHERE user_id=?", (other,))
         other_friends = set(row[0] for row in cursor.fetchall())
@@ -243,6 +271,24 @@ def _compute_multi_recommendations(user_id, mode, top_n, skip=0):
             )
 
     scored.sort(key=lambda x: -x[1])
+
+    # 按分数分层，随机打乱同档内的候选，实现"换一批"效果
+    # 分数差值 < 0.05 视为同一档，保持相对排序稳定
+    if len(scored) > 1:
+        tiered = []
+        current_tier = [scored[0]]
+        for i in range(1, len(scored)):
+            if abs(scored[i][1] - current_tier[0][1]) < 0.05:
+                current_tier.append(scored[i])
+            else:
+                random.shuffle(current_tier)
+                tiered.extend(current_tier)
+                current_tier = [scored[i]]
+        if current_tier:
+            random.shuffle(current_tier)
+            tiered.extend(current_tier)
+        scored = tiered
+
     conn.close()
     start = max(0, int(skip))
     end = start + max(1, int(top_n))
@@ -281,17 +327,20 @@ def _match_reason_text(
 _VALID_MODES = frozenset({"friend", "team", "love"})
 
 
-def _detailed_payload(user_id, mode, top_n=8, skip=0):
+def _detailed_payload(user_id, mode, top_n=8, skip=0, exclude_ids=None):
+    if exclude_ids is None:
+        exclude_ids = set()
     w_f, w_i, w_s, w_t = _mode_weights(mode)
-    rows = _compute_multi_recommendations(user_id, mode, top_n, skip)
+    rows = _compute_multi_recommendations(user_id, mode, top_n, skip, exclude_ids)
     conn = sqlite3.connect(DATABASE_PATH)
     cursor = conn.cursor()
     out = []
     for rid, total, f_sc, i_sc, s_sc, fi_cnt, ii_cnt, si_cnt, trait_mix, trait_sim, trait_comp in rows:
-        cursor.execute("SELECT username FROM users WHERE id=?", (rid,))
+        cursor.execute("SELECT username, gender FROM users WHERE id=?", (rid,))
         row = cursor.fetchone()
         if not row:
             continue
+        username, gender = row
         cursor.execute(
             "SELECT interest FROM user_interests WHERE user_id=? ORDER BY id LIMIT 6",
             (rid,),
@@ -305,7 +354,8 @@ def _detailed_payload(user_id, mode, top_n=8, skip=0):
         out.append(
             {
                 "id": rid,
-                "username": row[0],
+                "username": username,
+                "gender": gender,
                 "score": round(total, 4),
                 "reason": _match_reason_text(ii_cnt, si_cnt, fi_cnt, mode, trait_mix),
                 "interests_preview": interest_tags,
@@ -375,7 +425,16 @@ def api_recommend_detailed(mode):
     top_n = max(1, min(top_n, 20))
     skip = request.args.get("skip", default=0, type=int) or 0
     skip = max(0, min(skip, 100))
-    payload = _detailed_payload(uid, mode, top_n, skip)
+    # 支持 exclude 参数，排除指定用户（前端已滑过的用户）
+    exclude_str = request.args.get("exclude", default="", type=str) or ""
+    exclude_ids = set()
+    if exclude_str:
+        for eid in exclude_str.split(","):
+            try:
+                exclude_ids.add(int(eid.strip()))
+            except (ValueError, TypeError):
+                pass
+    payload = _detailed_payload(uid, mode, top_n, skip, exclude_ids)
     if skip == 0:
         _log_recommendation_snapshot(uid, mode, payload)
     return jsonify(
