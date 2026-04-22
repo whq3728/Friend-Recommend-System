@@ -14,10 +14,18 @@
 模板内容: 您的验证码是${code}，5分钟内有效，请勿泄露给他人。
 """
 
+import base64
+import hashlib
+import hmac
+import json
 import random
 import time
 import logging
+import uuid
 from typing import Optional
+from urllib.parse import urlencode, quote
+
+import requests
 
 from config import (
     ALIYUN_ACCESS_KEY_ID,
@@ -47,50 +55,60 @@ def _is_configured() -> bool:
     )
 
 
+def _sign(params: dict, secret: str) -> str:
+    """生成阿里云 API 签名（HMAC-SHA1，URL编码）。"""
+    sorted_params = sorted(params.items())
+    encoded_params = urlencode(sorted_params, safe="-_.~")
+    msg = "GET&" + quote("/", safe="") + "&" + quote(encoded_params, safe="-_.~")
+    signature = base64.b64encode(
+        hmac.new((secret + "&").encode("utf-8"), msg.encode("utf-8"), hashlib.sha1).digest()
+    ).decode("utf-8")
+    return signature
+
+
 def _send_via_aliyun(phone: str, code: str) -> tuple[bool, str]:
     """
-    通过阿里云dysmsapi发送短信。
+    通过阿里云 dysmsapi 发送短信（使用 requests 原生调用）。
 
     Returns:
         (success, message): 发送是否成功，及失败原因或成功提示
     """
     try:
-        from aliyunsdkcore.client import AcsClient
-        from aliyunsdkcore.request import CommonRequest
+        domain = "dysmsapi.aliyuncs.com"
+        version = "2017-05-25"
+        action = "SendSms"
 
-        client = AcsClient(
-            ALIYUN_ACCESS_KEY_ID,
-            ALIYUN_ACCESS_KEY_SECRET,
-            ALIYUN_SMS_REGION_ID,
-        )
+        params = {
+            "Format": "JSON",
+            "Version": version,
+            "AccessKeyId": ALIYUN_ACCESS_KEY_ID,
+            "SignatureMethod": "HMAC-SHA1",
+            "Timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "SignatureVersion": "1.0",
+            "SignatureNonce": str(uuid.uuid4()),
+            "RegionId": ALIYUN_SMS_REGION_ID,
+            "PhoneNumbers": phone,
+            "SignName": ALIYUN_SMS_SIGN_NAME,
+            "TemplateCode": ALIYUN_SMS_TEMPLATE_CODE,
+            "TemplateParam": f'{{"code":"{code}"}}',
+            "Action": action,
+        }
 
-        request = CommonRequest()
-        request.set_accept_format("json")
-        request.set_domain("dysmsapi.aliyuncs.com")
-        request.set_method("POST")
-        request.set_protocol_type("https")
-        request.set_version("2017-05-25")
-        request.set_action_name("SendSms")
+        signature = _sign(params, ALIYUN_ACCESS_KEY_SECRET)
+        params["Signature"] = signature
 
-        request.add_query_param("PhoneNumbers", phone)
-        request.add_query_param("SignName", ALIYUN_SMS_SIGN_NAME)
-        request.add_query_param("TemplateCode", ALIYUN_SMS_TEMPLATE_CODE)
-        request.add_query_param("TemplateParam", f'{{"code":"{code}"}}')
-
-        response = client.do_action_with_exception(request)
-        response_data = response.decode("utf-8") if isinstance(response, bytes) else response
+        url = f"https://{domain}/"
+        response = requests.get(url, params=params, timeout=10)
+        response_data = response.text
 
         logger.info(f"阿里云短信发送响应: {response_data}")
 
-        # 阿里云返回格式: {"Message": "OK", "Code": "OK", "RequestId": "xxx"}
-        if '"Code":"OK"' in response_data or '"Message":"OK"' in response_data:
+        result = json.loads(response_data)
+        if result.get("Code") == "OK":
             return True, "短信发送成功"
         else:
-            return False, f"发送失败: {response_data}"
+            return False, f"发送失败: {result.get('Message', response_data)}"
 
-    except ImportError:
-        logger.error("未安装阿里云SDK，请运行: pip install alibaba-cloud-sdk-dysmsapi")
-        return False, "短信服务未安装"
     except Exception as e:
         logger.error(f"阿里云短信发送异常: {e}")
         return False, f"发送异常: {str(e)}"
@@ -109,7 +127,6 @@ def send_sms(phone: str) -> tuple[bool, str, str]:
     """
     # 生成验证码
     code = _generate_code()
-    current_time = time.time()
 
     # 检查是否配置了阿里云
     if not _is_configured():

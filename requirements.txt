@@ -2,8 +2,8 @@
 Flask>=3.0.0,<4
 numpy>=1.26.0,<3
 
-# 阿里云短信服务
-alibaba-cloud-sdk-dysmsapi>=1.6.55
+# 阿里云短信服务（通过 requests 原生调用，无需 SDK）
+requests>=2.31.0
 
 # 环境变量加载（.env 文件）
 python-dotenv>=1.0.0
