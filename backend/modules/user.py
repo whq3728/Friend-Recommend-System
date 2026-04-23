@@ -26,6 +26,17 @@ def _conn():
     return sqlite3.connect(DATABASE_PATH)
 
 
+def update_last_active(user_id):
+    """更新用户最后活跃时间（北京时间）。"""
+    from datetime import datetime, timezone, timedelta
+    beijing_tz = timezone(timedelta(hours=8))
+    now_beijing = datetime.now(beijing_tz).strftime("%Y-%m-%d %H:%M:%S")
+    conn = _conn()
+    conn.execute("UPDATE users SET last_active=? WHERE id=?", (now_beijing, user_id))
+    conn.commit()
+    conn.close()
+
+
 def _normalize_phone(p):
     p = (p or "").strip().replace(" ", "")
     return p if p else ""

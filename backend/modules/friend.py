@@ -1,6 +1,6 @@
 # modules/friend.py — 好友列表、快捷互加、好友请求
 import sqlite3
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from flask import Blueprint, jsonify, request, session
 
@@ -53,13 +53,25 @@ def _are_friends(a, b):
     return ok
 
 
-def _fake_online(fid):
-    """演示用：根据好友 id 与当前小时生成稳定「在线感」。"""
-    h = datetime.now().hour
-    seed = (fid * 13 + h) % 10
-    if seed < 3:
+def _get_online_status(fid):
+    """根据 last_active 字段判断在线状态（真实追踪）。"""
+    beijing_tz = timezone(timedelta(hours=8))
+    conn = _conn()
+    cursor = conn.cursor()
+    cursor.execute("SELECT last_active FROM users WHERE id=?", (fid,))
+    row = cursor.fetchone()
+    conn.close()
+
+    if not row or not row[0]:
+        return "offline"
+
+    last_active = datetime.strptime(row[0], "%Y-%m-%d %H:%M:%S").replace(tzinfo=beijing_tz)
+    now_beijing = datetime.now(beijing_tz)
+    diff = (now_beijing - last_active).total_seconds()
+
+    if diff < 300:  # 5分钟内
         return "online"
-    if seed < 6:
+    if diff < 1800:  # 30分钟内
         return "away"
     return "offline"
 
@@ -118,7 +130,7 @@ def get_friends_with_ids(user_id):
                 "friend_since": created_at,
                 "gender": gender,
                 "grade": grade,
-                "online_status": _fake_online(fid),
+                "online_status": _get_online_status(fid),
                 "badges": badges,
             })
     conn.close()

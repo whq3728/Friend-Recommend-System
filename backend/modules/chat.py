@@ -1,6 +1,7 @@
 # modules/chat.py — 好友私信 API（页面由 Vue 提供）
 import os
 import sqlite3
+from datetime import datetime, timedelta, timezone
 
 from flask import Blueprint, jsonify, request, session
 
@@ -40,6 +41,22 @@ def _conn():
     return sqlite3.connect(DATABASE_PATH)
 
 
+def _to_beijing_time(stored_str):
+    """返回北京时间（数据已迁移为北京时间，直接返回）。"""
+    return stored_str if stored_str else None
+
+
+def _format_message(r):
+    """格式化消息记录，时间转换为北京时间。"""
+    return {
+        "id": r[0],
+        "sender_id": r[1],
+        "receiver_id": r[2],
+        "body": r[3],
+        "created_at": _to_beijing_time(r[4]),
+    }
+
+
 @chat_bp.route("/api/chat/<int:peer_id>/info", methods=["GET"])
 def api_chat_info(peer_id):
     """获取与某好友的聊天信息（如对方最后活跃时间）。"""
@@ -62,7 +79,7 @@ def api_chat_info(peer_id):
     conn.close()
     return jsonify({
         "peer_id": peer_id,
-        "last_message_from_peer_at": row[0] if row else None,
+        "last_message_from_peer_at": _to_beijing_time(row[0]) if row else None,
     })
 
 
@@ -120,18 +137,7 @@ def api_messages_get(peer_id):
     rows = cursor.fetchall()
     conn.close()
 
-    return jsonify(
-        [
-            {
-                "id": r[0],
-                "sender_id": r[1],
-                "receiver_id": r[2],
-                "body": r[3],
-                "created_at": r[4],
-            }
-            for r in rows
-        ]
-    )
+    return jsonify([_format_message(r) for r in rows])
 
 
 @chat_bp.route("/api/chat/<int:peer_id>/messages", methods=["POST"])
@@ -152,14 +158,16 @@ def api_messages_post(peer_id):
     conn = None
     row = None
     try:
+        beijing_tz = timezone(timedelta(hours=8))
+        now_beijing = datetime.now(beijing_tz).strftime("%Y-%m-%d %H:%M:%S")
         conn = _conn()
         cursor = conn.cursor()
         cursor.execute(
             """
-            INSERT INTO messages (sender_id, receiver_id, body)
-            VALUES (?, ?, ?)
+            INSERT INTO messages (sender_id, receiver_id, body, created_at)
+            VALUES (?, ?, ?, ?)
             """,
-            (me, peer_id, body),
+            (me, peer_id, body, now_beijing),
         )
         conn.commit()
         mid = cursor.lastrowid
@@ -177,12 +185,4 @@ def api_messages_post(peer_id):
     if not row:
         return jsonify({"error": "保存消息失败"}), 500
 
-    return jsonify(
-        {
-            "id": row[0],
-            "sender_id": row[1],
-            "receiver_id": row[2],
-            "body": row[3],
-            "created_at": row[4],
-        }
-    ), 201
+    return jsonify(_format_message(row)), 201

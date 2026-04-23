@@ -21,7 +21,7 @@ from modules.chat import chat_bp
 from modules.friend import friend_bp
 from modules.profile import profile_bp
 from modules.recommend import recommend_bp
-from modules.user import user_bp
+from modules.user import user_bp, update_last_active
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "your_secret_key")
@@ -53,8 +53,11 @@ app.register_blueprint(profile_bp)
 
 @app.before_request
 def handle_api_preflight():
+    from flask import session
     if request.method == "OPTIONS" and request.path.startswith("/api/"):
         return _apply_cors(make_response("", 204))
+    if request.path.startswith("/api/") and "user_id" in session:
+        update_last_active(session["user_id"])
 
 
 @app.after_request

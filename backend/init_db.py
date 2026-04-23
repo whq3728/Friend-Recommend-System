@@ -212,6 +212,29 @@ _user_cols = {r[1] for r in cursor.fetchall()}
 if "phone" not in _user_cols:
     cursor.execute("ALTER TABLE users ADD COLUMN phone TEXT")
 
+# 最后活跃时间（用于真实追踪在线状态）
+cursor.execute("PRAGMA table_info(users)")
+_user_cols = {r[1] for r in cursor.fetchall()}
+if "last_active" not in _user_cols:
+    cursor.execute("ALTER TABLE users ADD COLUMN last_active TEXT")
+
+# ---------------------------------------------------------------------------
+# 迁移：messages 表的时间从 UTC 改为北京时间（+8小时）
+# 通过标记列判断是否已迁移
+# ---------------------------------------------------------------------------
+cursor.execute("PRAGMA table_info(messages)")
+msg_cols = {r[1] for r in cursor.fetchall()}
+if "time_migrated" not in msg_cols:
+    cursor.execute("ALTER TABLE messages ADD COLUMN time_migrated INTEGER DEFAULT 0")
+    # 把未迁移的消息时间转为北京时间
+    cursor.execute("""
+        UPDATE messages
+        SET created_at = datetime(created_at, '+8 hours'),
+            time_migrated = 1
+        WHERE time_migrated = 0
+    """)
+    print("已迁移 messages 表的时间数据到北京时间")
+
 conn.commit()
 conn.close()
 print("数据库已就绪:", DB_PATH)
