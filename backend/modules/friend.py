@@ -148,33 +148,52 @@ def api_friends():
 def api_friends_add():
     if "user_id" not in session:
         return jsonify({"error": "未登录"}), 401
-    user_id = session["user_id"]
+    _ensure_requests_table()
+    me = session["user_id"]
     data = request.get_json(silent=True) or {}
     try:
-        friend_id = int(data.get("friend_id"))
+        to_id = int(data.get("friend_id"))
     except (TypeError, ValueError):
         return jsonify({"error": "无效的 friend_id"}), 400
-    if friend_id == user_id:
+    if to_id == me:
         return jsonify({"error": "不能添加自己"}), 400
     conn = _conn()
-    cursor = conn.cursor()
-    cursor.execute("SELECT id FROM users WHERE id=?", (friend_id,))
-    if not cursor.fetchone():
+    c = conn.cursor()
+    if not _row_user(c, to_id):
         conn.close()
         return jsonify({"error": "用户不存在"}), 404
-    for a, b in ((user_id, friend_id), (friend_id, user_id)):
-        cursor.execute(
-            "SELECT 1 FROM friendships WHERE user_id=? AND friend_id=?",
-            (a, b),
-        )
-        if not cursor.fetchone():
-            cursor.execute(
-                "INSERT INTO friendships (user_id,friend_id) VALUES (?,?)",
-                (a, b),
+    if _are_friends(me, to_id):
+        conn.close()
+        return jsonify({"error": "已是好友"}), 400
+    # 检查是否已有请求（任意方向）
+    c.execute(
+        "SELECT id, from_id, status FROM friend_requests WHERE (from_id=? AND to_id=?) OR (from_id=? AND to_id=?)",
+        (me, to_id, to_id, me),
+    )
+    ex = c.fetchone()
+    if ex:
+        rid, from_id, st = ex
+        if st == "pending":
+            conn.close()
+            direction = "发给对方的" if from_id == me else "对方发来的"
+            return jsonify({"error": f"已存在{direction}待处理请求", "request_id": rid}), 400
+        if st == "rejected":
+            # 被拒绝后可重新发起
+            c.execute(
+                "UPDATE friend_requests SET from_id=?, to_id=?, status='pending', created_at=datetime('now') WHERE id=?",
+                (me, to_id, rid),
             )
+            conn.commit()
+            conn.close()
+            return jsonify({"id": rid, "from_id": me, "to_id": to_id, "status": "pending"}), 200
+    c.execute(
+        "INSERT INTO friend_requests (from_id, to_id, status) VALUES (?,?, 'pending')",
+        (me, to_id),
+    )
     conn.commit()
+    rid = c.lastrowid
     conn.close()
-    return jsonify({"ok": True})
+    return jsonify({"id": rid, "from_id": me, "to_id": to_id, "status": "pending"}), 201
 
 
 def _row_user(c, uid):
@@ -349,4 +368,25 @@ def reject_friend_request(rid):
     c.execute("UPDATE friend_requests SET status='rejected' WHERE id=?", (rid,))
     conn.commit()
     conn.close()
+    return jsonify({"ok": True})
+
+
+@friend_bp.route("/api/friends/<int:friend_id>", methods=["DELETE"])
+def delete_friend(friend_id):
+    """删除好友关系（双向）。"""
+    if "user_id" not in session:
+        return jsonify({"error": "未登录"}), 401
+    user_id = session["user_id"]
+    conn = _conn()
+    c = conn.cursor()
+    # 删除双向 friendship 记录
+    c.execute(
+        "DELETE FROM friendships WHERE (user_id=? AND friend_id=?) OR (user_id=? AND friend_id=?)",
+        (user_id, friend_id, friend_id, user_id),
+    )
+    deleted = c.rowcount
+    conn.commit()
+    conn.close()
+    if deleted == 0:
+        return jsonify({"error": "好友关系不存在"}), 404
     return jsonify({"ok": True})

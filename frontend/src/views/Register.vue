@@ -3,7 +3,7 @@ import { ref, computed } from "vue";
 import { useRouter, RouterLink } from "vue-router";
 import { useAuthStore } from "../stores/auth";
 import AuthHero from "../components/AuthHero.vue";
-import { DevicePhoneMobileIcon, MapPinIcon } from "@heroicons/vue/24/outline";
+import { EyeIcon, EyeSlashIcon } from "@heroicons/vue/24/outline";
 
 const PRESET_TAGS = [
   "📚 自习泡馆",
@@ -41,6 +41,7 @@ const router = useRouter();
 const account = ref("");
 const username = ref("");
 const password = ref("");
+const showPassword = ref(false);
 const gender = ref("");
 const grade = ref("");
 const phone = ref("");
@@ -200,7 +201,23 @@ async function submit() {
         </div>
         <div class="field">
           <label>密码（至少 4 位）</label>
-          <input v-model="password" type="password" required autocomplete="new-password" />
+          <div class="password-row">
+            <input
+              v-model="password"
+              :type="showPassword ? 'text' : 'password'"
+              required
+              autocomplete="new-password"
+            />
+            <button
+              type="button"
+              class="btn btn-ghost btn-sm toggle-pass"
+              :aria-label="showPassword ? '隐藏密码' : '显示密码'"
+              @click="showPassword = !showPassword"
+            >
+              <EyeSlashIcon v-if="showPassword" class="h-ico" />
+              <EyeIcon v-else class="h-ico" />
+            </button>
+          </div>
         </div>
 
         <div class="section-title">🧠 性格测试（Big Five，支持跳过）</div>
@@ -458,5 +475,20 @@ h1 {
   color: var(--text-muted);
   margin-bottom: 0.4rem;
   line-height: 1.5;
+}
+
+.password-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+.password-row input {
+  flex: 1;
+}
+.toggle-pass {
+  flex-shrink: 0;
+  min-width: 3.3rem;
+  padding-left: 0.7rem;
+  padding-right: 0.7rem;
 }
 </style>

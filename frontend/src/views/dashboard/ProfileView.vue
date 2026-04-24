@@ -1,10 +1,148 @@
 <script setup>
 import { onMounted, reactive, ref, computed } from "vue";
 import { api } from "../../api/client";
+import { EyeIcon, EyeSlashIcon } from "@heroicons/vue/24/outline";
 
 const loading = ref(true);
 const err = ref("");
 const ok = ref("");
+
+// 预设选项
+const GENDER_OPTIONS = ["男", "女", "其他"];
+const GRADE_OPTIONS = ["大一", "大二", "大三", "大四", "研一", "研二", "研三", "博一", "博二+"];
+const MAJOR_OPTIONS = [
+  "计算机科学与技术",
+  "软件工程",
+  "人工智能",
+  "数据科学",
+  "电子信息工程",
+  "通信工程",
+  "自动化",
+  "机械工程",
+  "土木工程",
+  "金融学",
+  "经济学",
+  "管理学",
+  "市场营销",
+  "法学",
+  "汉语言文学",
+  "新闻传播学",
+  "英语",
+  "数学",
+  "物理学",
+  "化学",
+  "生物学",
+  "医学",
+  "心理学",
+  "教育学",
+  "设计学",
+  "艺术学",
+  "哲学",
+  "社会学",
+];
+
+const PRESET_TAGS = [
+  "📚 自习泡馆",
+  "🏃 运动健身",
+  "🎮 游戏开黑",
+  "🎵 音乐现场",
+  "📷 摄影扫街",
+  "🍜 探店美食",
+  "🎬 电影追剧",
+  "✈️ 旅行徒步",
+  "💻 编程技术",
+  "🎨 设计绘画",
+  "📖 读书会",
+  "🧪 科研实验",
+];
+
+const PRESET_SKILLS = [
+  "Python",
+  "Java",
+  "C++",
+  "前端开发",
+  "数据库",
+  "数据分析",
+  "机器学习",
+  "英语表达",
+  "PPT制作",
+  "写作表达",
+  "摄影",
+  "设计绘画",
+];
+
+// 兴趣/技能标签选择：点击预设标签直接追加到文本框
+const txtInterest = ref("");
+const txtSkill = ref("");
+
+function insertInterestTag(tag) {
+  const current = txtInterest.value;
+  const parts = current.split(/[\n,，]/).map(s => s.trim()).filter(Boolean);
+  if (!parts.includes(tag)) {
+    parts.push(tag);
+    txtInterest.value = parts.join("、");
+  }
+}
+
+function insertSkillTag(tag) {
+  const current = txtSkill.value;
+  const parts = current.split(/[\n,，]/).map(s => s.trim()).filter(Boolean);
+  if (!parts.includes(tag)) {
+    parts.push(tag);
+    txtSkill.value = parts.join("、");
+  }
+}
+
+// 性别/年级/专业各用两个字段：下拉 + 手动输入，最终合并到 form
+const selGender = ref("");
+const selGrade = ref("");
+const selMajor = ref("");
+const txtGender = ref("");
+const txtGrade = ref("");
+const txtMajor = ref("");
+
+const showPassword = ref(false);
+
+function syncSelectToForm() {
+  form.gender = selGender.value || txtGender.value;
+  form.grade = selGrade.value || txtGrade.value;
+  form.major = selMajor.value || txtMajor.value;
+  form.interests = txtInterest.value;
+  form.skills = txtSkill.value;
+}
+
+// 双向同步：form 变化时同步回下拉/输入框
+function onGenderInput() {
+  const v = form.gender;
+  if (GENDER_OPTIONS.includes(v)) {
+    selGender.value = v;
+    txtGender.value = "";
+  } else {
+    selGender.value = "";
+    txtGender.value = v;
+  }
+}
+function onGradeInput() {
+  const v = form.grade;
+  if (GRADE_OPTIONS.includes(v)) {
+    selGrade.value = v;
+    txtGrade.value = "";
+  } else {
+    selGrade.value = "";
+    txtGrade.value = v;
+  }
+}
+function onMajorInput() {
+  const v = form.major;
+  if (MAJOR_OPTIONS.includes(v)) {
+    selMajor.value = v;
+    txtMajor.value = "";
+  } else {
+    selMajor.value = "";
+    txtMajor.value = v;
+  }
+}
+
 const form = reactive({
   id: "",
   account: "",
@@ -164,6 +302,15 @@ onMounted(async () => {
     form.skills = lines(p.skills);
     form.projects = lines(p.projects);
     form.traits = lines(p.traits);
+    txtInterest.value = form.interests;
+    txtSkill.value = form.skills;
+    // 同步到下拉/输入框
+    selGender.value = GENDER_OPTIONS.includes(p.gender) ? p.gender : "";
+    txtGender.value = GENDER_OPTIONS.includes(p.gender) ? "" : (p.gender || "");
+    selGrade.value = GRADE_OPTIONS.includes(p.grade) ? p.grade : "";
+    txtGrade.value = GRADE_OPTIONS.includes(p.grade) ? "" : (p.grade || "");
+    selMajor.value = MAJOR_OPTIONS.includes(p.major) ? p.major : "";
+    txtMajor.value = MAJOR_OPTIONS.includes(p.major) ? "" : (p.major || "");
     personalityFilled.value = !!p.personality_filled;
     if (p.bigfive) {
       bigfiveQuick.extro = to1to5(p.bigfive.extro);
@@ -189,8 +336,15 @@ function closePersonalityModal() {
 
 async function submitPersonality() {
   err.value = "";
+  
   try {
+    // 生成性格标签
+    const generatedTraits = generateTraits(bigfiveQuick);
+    form.traits = generatedTraits;
+    
+    // 性格测试可以独立更新，不需要传 username
     const body = {};
+    
     if (personalityMode.value === "quick") {
       body.personality_mode = "quick";
       body.bigfive_quick = { ...bigfiveQuick };
@@ -198,17 +352,11 @@ async function submitPersonality() {
       body.personality_mode = "questionnaire";
       body.bigfive_answers = [...questionnaire.value];
     }
+    
+    // 性格标签
+    body.traits = parseList(form.traits);
+    
     await api("/api/profile", { method: "PUT", body });
-    
-    // 生成性格标签并更新 form.traits
-    const generatedTraits = generateTraits(bigfiveQuick);
-    form.traits = generatedTraits;
-    
-    // 同时保存性格标签
-    await api("/api/profile", { 
-      method: "PUT", 
-      body: { traits: parseList(form.traits) } 
-    });
     
     personalityFilled.value = true;
     showPersonalityModal.value = false;
@@ -222,6 +370,7 @@ async function submitPersonality() {
 async function save() {
   err.value = "";
   ok.value = "";
+  syncSelectToForm();
   try {
     const body = {
       username: form.username.trim(),
@@ -235,7 +384,7 @@ async function save() {
       traits: parseList(form.traits),
     };
     if (form.password.trim()) body.password = form.password.trim();
-    
+
     await api("/api/profile", { method: "PUT", body });
     form.password = "";
     ok.value = "已保存";
@@ -307,27 +456,80 @@ async function save() {
       </div>
       <div class="field">
         <label>新密码（留空不改）</label>
-        <input v-model="form.password" type="password" autocomplete="new-password" />
+        <div class="password-row">
+          <input
+            v-model="form.password"
+            :type="showPassword ? 'text' : 'password'"
+            autocomplete="new-password"
+            placeholder="留空则保持原密码"
+          />
+          <button
+            type="button"
+            class="btn btn-ghost btn-sm toggle-pass"
+            :aria-label="showPassword ? '隐藏密码' : '显示密码'"
+            @click="showPassword = !showPassword"
+          >
+            <EyeSlashIcon v-if="showPassword" class="h-ico" />
+            <EyeIcon v-else class="h-ico" />
+          </button>
+        </div>
       </div>
       <div class="field">
         <label>性别</label>
-        <input v-model="form.gender" placeholder="男 / 女 / 其他" />
+        <div class="select-row">
+          <select v-model="selGender" @change="txtGender = ''" @input="onGenderInput">
+            <option value="">请选择</option>
+            <option v-for="g in GENDER_OPTIONS" :key="g" :value="g">{{ g }}</option>
+          </select>
+          <input v-model="txtGender" placeholder="或手动输入" @input="selGender = ''; onGenderInput" />
+        </div>
       </div>
       <div class="field">
         <label>年级</label>
-        <input v-model="form.grade" placeholder="如：大一、研二" />
+        <div class="select-row">
+          <select v-model="selGrade" @change="txtGrade = ''" @input="onGradeInput">
+            <option value="">请选择</option>
+            <option v-for="g in GRADE_OPTIONS" :key="g" :value="g">{{ g }}</option>
+          </select>
+          <input v-model="txtGrade" placeholder="或手动输入" @input="selGrade = ''; onGradeInput" />
+        </div>
       </div>
       <div class="field">
         <label>专业</label>
-        <input v-model="form.major" placeholder="如：计算机科学与技术" />
+        <div class="select-row">
+          <select v-model="selMajor" @change="txtMajor = ''" @input="onMajorInput">
+            <option value="">请选择</option>
+            <option v-for="m in MAJOR_OPTIONS" :key="m" :value="m">{{ m }}</option>
+          </select>
+          <input v-model="txtMajor" placeholder="或手动输入" @input="selMajor = ''; onMajorInput" />
+        </div>
       </div>
       <div class="field">
-        <label>兴趣（每行一条）</label>
-        <textarea v-model="form.interests" rows="4" placeholder="如：音乐、运动、编程"></textarea>
+        <label>兴趣</label>
+        <div class="tag-presets">
+          <button
+            v-for="t in PRESET_TAGS"
+            :key="t"
+            type="button"
+            class="tag"
+            @click="insertInterestTag(t)"
+          >{{ t }}</button>
+        </div>
+        <textarea v-model="txtInterest" rows="3" placeholder="点击上方预设标签或直接输入，每项用顿号、或换行分隔"></textarea>
       </div>
+
       <div class="field">
         <label>技能</label>
-        <textarea v-model="form.skills" rows="4" placeholder="如：Python、设计、PPT"></textarea>
+        <div class="tag-presets">
+          <button
+            v-for="t in PRESET_SKILLS"
+            :key="t"
+            type="button"
+            class="tag"
+            @click="insertSkillTag(t)"
+          >{{ t }}</button>
+        </div>
+        <textarea v-model="txtSkill" rows="3" placeholder="点击上方预设标签或直接输入，每项用顿号、或换行分隔"></textarea>
       </div>
       <div class="field">
         <label>项目 / 比赛</label>
@@ -337,7 +539,7 @@ async function save() {
       <!-- 性格标签（由测试自动生成，也可手动编辑） -->
       <div class="field">
         <label>
-          性格标签（恋爱推荐用）
+          性格标签
           <span class="auto-hint" v-if="personalityFilled">已自动生成，可手动调整</span>
         </label>
         <textarea v-model="form.traits" rows="3" placeholder="完成性格测试后将自动生成，如：活泼开朗、温柔体贴"></textarea>
@@ -862,5 +1064,65 @@ h2 {
 .q-option span {
   font-size: 0.7rem;
   color: var(--text-muted);
+}
+
+/* 下拉 + 手动输入组合 */
+.select-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.select-row select {
+  flex: 1;
+  min-width: 120px;
+  padding: 0.55rem 0.85rem;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg-panel);
+  color: var(--text);
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+.select-row input {
+  flex: 1;
+  min-width: 100px;
+}
+
+/* 预设标签行 */
+.tag-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-bottom: 0.5rem;
+}
+.tag {
+  padding: 0.3rem 0.7rem;
+  border-radius: 999px;
+  border: 1.5px solid var(--border);
+  background: var(--bg-panel);
+  color: var(--text);
+  font-size: 0.82rem;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.tag:hover {
+  border-color: var(--jn-maroon);
+  color: var(--jn-maroon);
+}
+
+.password-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+.password-row input {
+  flex: 1;
+}
+.toggle-pass {
+  flex-shrink: 0;
+  min-width: 3.3rem;
+  padding-left: 0.7rem;
+  padding-right: 0.7rem;
 }
 </style>

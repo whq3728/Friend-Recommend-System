@@ -85,10 +85,22 @@ async function quickAdd() {
     if (!id) throw new Error("请输入有效 ID");
     await api("/api/friends/add", { method: "POST", body: { friend_id: id } });
     friendId.value = "";
-    ui.toast("已建立双向好友关系", "ok");
+    ui.toast("已发送好友请求，等待对方同意", "ok");
     await refresh();
   } catch (e) {
     ui.toast(e instanceof Error ? e.message : "添加失败", "err");
+  }
+}
+
+async function removeFriend(friendId) {
+  const ok = await ui.showConfirm("确定要删除该好友吗？删除后将解除双方的好友关系。");
+  if (!ok) return;
+  try {
+    await api(`/api/friends/${friendId}`, { method: "DELETE" });
+    ui.toast("已删除好友", "ok");
+    await refresh();
+  } catch (e) {
+    ui.toast(e instanceof Error ? e.message : "删除失败", "err");
   }
 }
 
@@ -247,10 +259,11 @@ const friendVirtualizer = useVirtualizer(
               {{ badgeLabel(b).text }}
             </span>
           </div>
-          <div class="card-actions">
-            <RouterLink class="btn btn-ghost btn-sm" :to="'/app/user/' + u.id">资料</RouterLink>
-            <RouterLink class="btn btn-primary btn-sm" :to="'/app/chat/' + u.id">聊天</RouterLink>
-          </div>
+              <div class="card-actions">
+                <RouterLink class="btn btn-ghost btn-sm" :to="'/app/user/' + u.id">资料</RouterLink>
+                <RouterLink class="btn btn-primary btn-sm" :to="'/app/chat/' + u.id">聊天</RouterLink>
+                <button type="button" class="btn btn-danger btn-sm" @click="removeFriend(u.id)">删除</button>
+              </div>
         </div>
       </div>
       <div
@@ -304,6 +317,7 @@ const friendVirtualizer = useVirtualizer(
               <div class="card-actions">
                 <RouterLink class="btn btn-ghost btn-sm" :to="'/app/user/' + friends[v.index].id">资料</RouterLink>
                 <RouterLink class="btn btn-primary btn-sm" :to="'/app/chat/' + friends[v.index].id">聊天</RouterLink>
+                <button type="button" class="btn btn-danger btn-sm" @click="removeFriend(friends[v.index].id)">删除</button>
               </div>
             </div>
           </div>

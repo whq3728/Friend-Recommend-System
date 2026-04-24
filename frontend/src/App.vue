@@ -5,7 +5,7 @@ import { useUiStore } from "./stores/ui";
 
 // 根组件仅负责页面切换与全局浮动提示，不承载业务状态
 const ui = useUiStore();
-const { toasts } = storeToRefs(ui);
+const { toasts, confirm } = storeToRefs(ui);
 </script>
 
 <template>
@@ -29,6 +29,18 @@ const { toasts } = storeToRefs(ui);
           </div>
         </TransitionGroup>
       </div>
+
+      <Transition name="modal-fade">
+        <div v-if="confirm" class="modal-overlay" @click.self="ui.resolveConfirm(false)">
+          <div class="modal-box">
+            <p class="modal-msg">{{ confirm.message }}</p>
+            <div class="modal-actions">
+              <button class="btn btn-ghost" @click="ui.resolveConfirm(false)">取消</button>
+              <button class="btn btn-danger-confirm" @click="ui.resolveConfirm(true)">确认</button>
+            </div>
+          </div>
+        </div>
+      </Transition>
     </Teleport>
   </div>
 </template>
@@ -78,6 +90,57 @@ const { toasts } = storeToRefs(ui);
 }
 .toast-slide-enter-from,
 .toast-slide-leave-to {
+  opacity: 0;
+}
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+  backdrop-filter: blur(2px);
+}
+.modal-box {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 1.5rem 1.75rem;
+  max-width: min(90vw, 360px);
+  width: 100%;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
+  text-align: center;
+}
+.modal-msg {
+  font-size: 0.95rem;
+  color: var(--text);
+  margin: 0 0 1.25rem;
+  line-height: 1.55;
+}
+.modal-actions {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: center;
+}
+.modal-actions .btn {
+  flex: 1;
+  max-width: 120px;
+}
+.btn-danger-confirm {
+  background: linear-gradient(135deg, var(--jn-maroon), #6d0f2b);
+  color: #fff;
+  border: none;
+}
+.btn-danger-confirm:hover {
+  filter: brightness(1.05);
+}
+.modal-fade-enter-active,
+.modal-fade-leave-active {
+  transition: opacity 0.18s ease;
+}
+.modal-fade-enter-from,
+.modal-fade-leave-to {
   opacity: 0;
 }
 </style>

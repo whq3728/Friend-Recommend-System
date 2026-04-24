@@ -391,6 +391,8 @@ onBeforeUnmount(() => {
   border-radius: 16px;
   font-size: 0.94rem;
   border: 1px solid transparent;
+  word-break: break-word;
+  overflow-wrap: break-word;
 }
 .bubble.me {
   background: linear-gradient(135deg, #8b1538, #a91d47);

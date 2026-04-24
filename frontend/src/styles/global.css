@@ -106,6 +106,14 @@ h1, h2, h3 {
   padding: 0.35rem 0.75rem;
   font-size: 0.82rem;
 }
+.btn-danger {
+  background: #fee2e2;
+  color: #dc2626;
+  border: 1px solid #fca5a5;
+}
+.btn-danger:hover {
+  background: #fecaca;
+}
 
 .field {
   margin-bottom: 1rem;

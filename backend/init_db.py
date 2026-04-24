@@ -123,7 +123,56 @@ CREATE TABLE IF NOT EXISTS user_matching_prefs (
     user_id INTEGER PRIMARY KEY,
     share_interests INTEGER NOT NULL DEFAULT 1,
     share_skills INTEGER NOT NULL DEFAULT 1,
-    share_friend_graph INTEGER NOT NULL DEFAULT 1
+    share_friend_graph INTEGER NOT NULL DEFAULT 1,
+    share_personality INTEGER NOT NULL DEFAULT 1
+)
+""")
+
+# 陌生人可见设置（推荐时陌生人能看到哪些资料）
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS user_stranger_visibility (
+    user_id INTEGER PRIMARY KEY,
+    show_gender INTEGER NOT NULL DEFAULT 1,
+    show_grade INTEGER NOT NULL DEFAULT 1,
+    show_major INTEGER NOT NULL DEFAULT 1,
+    show_interests INTEGER NOT NULL DEFAULT 1,
+    show_skills INTEGER NOT NULL DEFAULT 1,
+    show_projects INTEGER NOT NULL DEFAULT 0,
+    show_personality INTEGER NOT NULL DEFAULT 0
+)
+""")
+
+# 好友可见设置（全局默认，好友能看到哪些资料）
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS user_friend_visibility (
+    user_id INTEGER PRIMARY KEY,
+    show_phone INTEGER NOT NULL DEFAULT 0,
+    show_gender INTEGER NOT NULL DEFAULT 1,
+    show_grade INTEGER NOT NULL DEFAULT 1,
+    show_major INTEGER NOT NULL DEFAULT 1,
+    show_interests INTEGER NOT NULL DEFAULT 1,
+    show_skills INTEGER NOT NULL DEFAULT 1,
+    show_projects INTEGER NOT NULL DEFAULT 1,
+    show_personality INTEGER NOT NULL DEFAULT 1
+)
+""")
+
+# 好友独立隐私覆盖（针对每个好友单独设置）
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS user_friend_privacy_override (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    friend_id INTEGER NOT NULL,
+    show_phone INTEGER,
+    show_gender INTEGER,
+    show_grade INTEGER,
+    show_major INTEGER,
+    show_interests INTEGER,
+    show_skills INTEGER,
+    show_projects INTEGER,
+    show_personality INTEGER,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(user_id, friend_id)
 )
 """)
 

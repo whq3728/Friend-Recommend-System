@@ -3,6 +3,7 @@ import { ref } from "vue";
 import { RouterLink, useRouter } from "vue-router";
 import { useAuthStore } from "../stores/auth";
 import AuthHero from "../components/AuthHero.vue";
+import { EyeIcon, EyeSlashIcon } from "@heroicons/vue/24/outline";
 
 const auth = useAuthStore();
 const router = useRouter();
@@ -10,6 +11,7 @@ const router = useRouter();
 const phone = ref("");
 const code = ref("");
 const newPassword = ref("");
+const showPassword = ref(false);
 const err = ref("");
 const ok = ref("");
 const sending = ref(false);
@@ -90,7 +92,25 @@ async function submit() {
         </div>
         <div class="field">
           <label>新密码（至少 4 位）</label>
-          <input v-model="newPassword" type="password" required minlength="4" autocomplete="new-password" />
+          <label>新密码（至少 4 位）</label>
+          <div class="password-row">
+            <input
+              v-model="newPassword"
+              :type="showPassword ? 'text' : 'password'"
+              required
+              minlength="4"
+              autocomplete="new-password"
+            />
+            <button
+              type="button"
+              class="btn btn-ghost btn-sm toggle-pass"
+              :aria-label="showPassword ? '隐藏密码' : '显示密码'"
+              @click="showPassword = !showPassword"
+            >
+              <EyeSlashIcon v-if="showPassword" class="h-ico" />
+              <EyeIcon v-else class="h-ico" />
+            </button>
+          </div>
         </div>
         <button type="submit" class="btn btn-primary wide">重置密码</button>
       </form>
@@ -139,5 +159,19 @@ h1 {
 .btn-code {
   flex-shrink: 0;
   margin-bottom: 0.05rem;
+}
+.password-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+.password-row input {
+  flex: 1;
+}
+.toggle-pass {
+  flex-shrink: 0;
+  min-width: 3.3rem;
+  padding-left: 0.7rem;
+  padding-right: 0.7rem;
 }
 </style>
